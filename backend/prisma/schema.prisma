@@ -1,0 +1,309 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role { 
+  STUDENT
+  LIBRARIAN
+  ADMIN
+}
+enum CopyStatus {
+  AVAILABLE
+  RESERVED
+  LOANED
+  WITHDRAWN
+}
+enum PhysicalCondition {
+  GOOD
+  DAMAGED
+  LOST
+}
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  REFUSED
+  EXPIRED
+  CANCELLED
+}
+enum ReservationStatus {
+  ACTIVE
+  COLLECTED
+  EXPIRED
+  CANCELLED
+}
+enum LoanStatus {
+  ACTIVE
+  OVERDUE
+  CLOSED
+}
+enum InfractionType {
+  LATE
+  LOSS
+  DAMAGE_MINOR
+  DAMAGE_SEVERE
+}
+enum SanctionType {
+  WARNING
+  SUSPENSION
+  BAN
+  FINE
+}
+enum SanctionStatus {
+  ACTIVE
+  PAID
+  REVOKED
+}
+enum AcquisitionStatus {
+  SUBMITTED
+  REVIEW
+  ACCEPTED
+  REFUSED
+  ACQUIRED
+}
+
+model User {
+  id                    String @id @default(uuid()) @db.Uuid
+  googleSub             String? @unique
+  email                 String @unique
+  name                  String
+  role                  Role @default(STUDENT)
+  active                Boolean @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  student               Student?
+  sessions              Session[]
+  verifications         IdentityVerification[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+}
+
+model Student {
+  id                    String @id @default(uuid()) @db.Uuid
+  userId                String @unique @db.Uuid
+  user                  User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  studentNumber         String? @unique
+  verified              Boolean @default(false)
+  lateCycle             Int @default(0)
+  suspensions           Int @default(0)
+  requests              BorrowRequest[]
+  reservations          Reservation[]
+  loans                 Loan[]
+  infractions           Infraction[]
+  sanctions             Sanction[]
+  acquisitions          Acquisition[]
+}
+
+model IdentityVerification {
+  id                    String @id @default(uuid()) @db.Uuid
+  userId                String @db.Uuid
+  user                  User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  studentNumber         String
+  provider              String
+  status                String
+  verifiedAt            DateTime?
+  createdAt             DateTime @default(now())
+  @@index([userId, createdAt])
+}
+
+model Session {
+  id                    String @id @default(uuid()) @db.Uuid
+  tokenHash             String @unique
+  userId                String @db.Uuid
+  user                  User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  csrfToken             String
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
+  @@index([expiresAt])
+}
+
+model AuthChallenge {
+  id                    String @id @default(uuid()) @db.Uuid
+  tokenHash             String @unique
+  nonceHash             String? @unique
+  csrfToken             String
+  credentialHash        String? @unique
+  expiresAt             DateTime
+  usedAt                DateTime?
+  createdAt             DateTime @default(now())
+  @@index([expiresAt])
+}
+
+model Author {
+  id                    String @id @default(uuid()) @db.Uuid
+  name                  String @unique
+  books                 Book[]
+}
+model Category {
+  id                    String @id @default(uuid()) @db.Uuid
+  name                  String @unique
+  books                 Book[]
+}
+model Book {
+  id                    String @id @default(uuid()) @db.Uuid
+  title                 String
+  isbn                  String? @unique
+  publisher             String?
+  year                  Int?
+  description           String @default("")
+  priceDh               Decimal @default(0) @db.Decimal(10,2)
+  coverColor            String @default("#1e3a5f")
+  coverUrl              String?
+  archived              Boolean @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  authors               Author[]
+  categories            Category[]
+  copies                Copy[]
+  requests              BorrowRequest[]
+  acquisitions          Acquisition[]
+  @@index([title])
+  @@index([archived, createdAt])
+}
+model Copy {
+  id                    String @id @default(uuid()) @db.Uuid
+  bookId                String @db.Uuid
+  book                  Book @relation(fields:[bookId], references:[id], onDelete:Restrict)
+  barcode               String @unique
+  status                CopyStatus @default(AVAILABLE)
+  condition             PhysicalCondition @default(GOOD)
+  createdAt             DateTime @default(now())
+  reservations          Reservation[]
+  loans                 Loan[]
+  @@index([bookId,status])
+}
+model BorrowRequest {
+  id                    String @id @default(uuid()) @db.Uuid
+  studentId             String @db.Uuid
+  student               Student @relation(fields:[studentId], references:[id], onDelete:Restrict)
+  bookId                String @db.Uuid
+  book                  Book @relation(fields:[bookId], references:[id], onDelete:Restrict)
+  status                RequestStatus @default(PENDING)
+  reason                String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  reservation           Reservation?
+  @@index([studentId,createdAt])
+}
+model Reservation {
+  id                    String @id @default(uuid()) @db.Uuid
+  requestId             String @unique @db.Uuid
+  request               BorrowRequest @relation(fields:[requestId], references:[id], onDelete:Restrict)
+  studentId             String @db.Uuid
+  student               Student @relation(fields:[studentId], references:[id], onDelete:Restrict)
+  copyId                String @db.Uuid
+  copy                  Copy @relation(fields:[copyId], references:[id], onDelete:Restrict)
+  status                ReservationStatus @default(ACTIVE)
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
+  loan                  Loan?
+  @@index([status,expiresAt])
+  @@index([studentId,status])
+}
+model Loan {
+  id                    String @id @default(uuid()) @db.Uuid
+  studentId             String @db.Uuid
+  student               Student @relation(fields:[studentId], references:[id], onDelete:Restrict)
+  copyId                String @db.Uuid
+  copy                  Copy @relation(fields:[copyId], references:[id], onDelete:Restrict)
+  reservationId         String? @unique @db.Uuid
+  reservation           Reservation? @relation(fields:[reservationId], references:[id], onDelete:Restrict)
+  status                LoanStatus @default(ACTIVE)
+  handedAt              DateTime @default(now())
+  dueAt                 DateTime
+  returnedAt            DateTime?
+  handedById            String? @db.Uuid
+  returnedById          String? @db.Uuid
+  infractions           Infraction[]
+  @@index([studentId,status])
+  @@index([status,dueAt])
+}
+model Infraction {
+  id                    String @id @default(uuid()) @db.Uuid
+  studentId             String @db.Uuid
+  student               Student @relation(fields:[studentId], references:[id], onDelete:Restrict)
+  loanId                String @db.Uuid
+  loan                  Loan @relation(fields:[loanId], references:[id], onDelete:Restrict)
+  type                  InfractionType
+  createdAt             DateTime @default(now())
+  sanctions             Sanction[]
+  @@unique([loanId,type])
+}
+model Sanction {
+  id                    String @id @default(uuid()) @db.Uuid
+  studentId             String @db.Uuid
+  student               Student @relation(fields:[studentId], references:[id], onDelete:Restrict)
+  infractionId          String? @db.Uuid
+  infraction            Infraction? @relation(fields:[infractionId], references:[id], onDelete:Restrict)
+  type                  SanctionType
+  status                SanctionStatus @default(ACTIVE)
+  amountDh              Decimal? @db.Decimal(10,2)
+  startsAt              DateTime @default(now())
+  endsAt                DateTime?
+  reason                String
+  createdAt             DateTime @default(now())
+  @@index([studentId,status])
+}
+model Acquisition {
+  id                    String @id @default(uuid()) @db.Uuid
+  studentId             String @db.Uuid
+  student               Student @relation(fields:[studentId], references:[id], onDelete:Restrict)
+  title                 String
+  author                String
+  category              String
+  referenceUrl          String?
+  reason                String?
+  status                AcquisitionStatus @default(SUBMITTED)
+  comment               String?
+  bookId                String? @db.Uuid
+  book                  Book? @relation(fields:[bookId], references:[id], onDelete:Restrict)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  @@index([studentId,createdAt])
+}
+model Notification {
+  id                    String @id @default(uuid()) @db.Uuid
+  userId                String @db.Uuid
+  user                  User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  type                  String
+  content               String
+  dedupeKey             String? @unique
+  readAt                DateTime?
+  createdAt             DateTime @default(now())
+  @@index([userId,createdAt])
+}
+model AuditLog {
+  id                    String @id @default(uuid()) @db.Uuid
+  userId                String? @db.Uuid
+  user                  User? @relation(fields:[userId], references:[id], onDelete:SetNull)
+  action                String
+  entity                String
+  entityId              String?
+  details               Json?
+  createdAt             DateTime @default(now())
+  @@index([createdAt])
+}
+model StatusHistory {
+  id                    String @id @default(uuid()) @db.Uuid
+  entity                String
+  entityId              String @db.Uuid
+  fromStatus            String?
+  toStatus              String
+  actorId               String? @db.Uuid
+  reason                String?
+  createdAt             DateTime @default(now())
+  @@index([entity,entityId])
+}
+model LibrarySettings {
+  id                    String @id @default("singleton")
+  maxLoans              Int @default(3)
+  loanDays              Int @default(14)
+  pickupHours           Int @default(48)
+  lateSuspensionDays    Int @default(7)
+  minorDamageDays       Int @default(15)
+  updatedAt             DateTime @updatedAt
+}

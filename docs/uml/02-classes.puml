@@ -1,0 +1,227 @@
+@startuml
+hide circle
+skinparam classAttributeIconSize 0
+title Modèle de domaine — noms alignés avec PostgreSQL / Prisma
+class User {
+ +id: UUID
+ +googleSub: String? {unique}
+ +email: String {unique}
+ +name: String
+ +role: Role
+ +active: Boolean
+}
+class Student {
+ +id: UUID
+ +userId: UUID {unique}
+ +studentNumber: String? {unique}
+ +verified: Boolean
+ +lateCycle: Integer
+ +suspensions: Integer
+}
+class IdentityVerification {
+ +id: UUID
+ +userId: UUID
+ +studentNumber: String
+ +provider: String
+ +status: String
+ +verifiedAt: DateTime?
+}
+class Session {
+ +id: UUID
+ -tokenHash: String {unique}
+ -csrfToken: String
+ +expiresAt: DateTime
+}
+class AuthChallenge {
+ +id: UUID
+ -tokenHash: String {unique}
+ -nonceHash: String? {unique}
+ -csrfToken: String
+ -credentialHash: String? {unique}
+ +expiresAt: DateTime
+ +usedAt: DateTime?
+}
+class Book {
+ +id: UUID
+ +isbn: String? {unique}
+ +title: String
+ +publisher: String?
+ +year: Integer?
+ +description: Text
+ +priceDh: Decimal
+ +coverUrl: String?
+ +coverColor: String
+ +archived: Boolean
+}
+class Author {
+ +id: UUID
+ +name: String {unique}
+}
+class Category {
+ +id: UUID
+ +name: String {unique}
+}
+class Copy {
+ +id: UUID
+ +barcode: String {unique}
+ +status: CopyStatus
+ +condition: PhysicalCondition
+}
+class BorrowRequest {
+ +id: UUID
+ +status: RequestStatus
+ +reason: String?
+ +createdAt: DateTime
+}
+class Reservation {
+ +id: UUID
+ +requestId: UUID {unique}
+ +status: ReservationStatus
+ +expiresAt: DateTime
+}
+class Loan {
+ +id: UUID
+ +reservationId: UUID? {unique}
+ +status: LoanStatus
+ +handedAt: DateTime
+ +dueAt: DateTime
+ +returnedAt: DateTime?
+ +handedById: UUID?
+ +returnedById: UUID?
+}
+class Infraction {
+ +id: UUID
+ +loanId: UUID
+ +type: InfractionType
+ +createdAt: DateTime
+}
+class Sanction {
+ +id: UUID
+ +type: SanctionType
+ +status: SanctionStatus
+ +amountDh: Decimal?
+ +startsAt: DateTime
+ +endsAt: DateTime?
+ +reason: String
+}
+class Acquisition {
+ +id: UUID
+ +title: String
+ +author: String
+ +category: String
+ +referenceUrl: String?
+ +reason: String?
+ +status: AcquisitionStatus
+ +comment: String?
+ +bookId: UUID?
+}
+class Notification {
+ +id: UUID
+ +type: String
+ +content: String
+ +readAt: DateTime?
+ +dedupeKey: String? {unique}
+}
+class AuditLog {
+ +id: UUID
+ +action: String
+ +entity: String
+ +entityId: String?
+ +details: Json?
+ +createdAt: DateTime
+}
+class StatusHistory {
+ +id: UUID
+ +entity: String
+ +entityId: UUID
+ +fromStatus: String?
+ +toStatus: String
+ +actorId: UUID?
+ +reason: String?
+ +createdAt: DateTime
+}
+class LibrarySettings {
+ +id: String = "singleton"
+ +loanDays: Integer
+ +pickupHours: Integer
+ +maxLoans: Integer
+ +lateSuspensionDays: Integer
+ +minorDamageDays: Integer
+}
+class CirculationService <<service>> {
+ +requestBorrow(userId: UUID, bookId: UUID, now?: DateTime): BorrowRequest
+ +cancelRequest(userId: UUID, requestId: UUID, now?: DateTime): BorrowRequest
+ +handover(actorId: UUID, reservationId: UUID, input: HandoverInput, now?: DateTime): Loan
+ +returnLoan(actorId: UUID, loanId: UUID, input: ReturnInput, now?: DateTime): Loan
+ +expireReservations(now?: DateTime): Integer
+ +processOverdue(now?: DateTime): Integer
+ +generateReminders(now?: DateTime): Map<String,Integer>
+}
+class SanctionService <<service>> {
+ +applyInfraction(tx: Transaction, input: InfractionInput): Sanction?
+ +resetExpiredLateCycle(tx: Transaction, studentId: UUID, now: DateTime): Boolean
+}
+class SchedulerService <<service>> {
+ +resetExpiredLateCycles(now?: DateTime): Integer
+ +sweepJobs(now?: DateTime): Object
+ +startJobs(intervalMs?: Integer): Function
+}
+interface UniversityConnector {
+ +configured: Boolean
+ +verify(identity: UniversityIdentity): UniversityVerification
+}
+class DemoUniversityConnector
+class UnconfiguredUniversityConnector
+UniversityConnector <|.. DemoUniversityConnector
+UniversityConnector <|.. UnconfiguredUniversityConnector
+User "1" *-- "0..1" Student : profil
+User "1" -- "0..*" IdentityVerification
+User "1" *-- "0..*" Session
+User "1" -- "0..*" Notification : destinataire
+User "0..1" -- "0..*" AuditLog : acteur
+Book "0..*" -- "0..*" Author
+Book "0..*" -- "0..*" Category
+Book "1" -- "0..*" Copy
+Book "1" -- "0..*" BorrowRequest
+Student "1" -- "0..*" BorrowRequest
+BorrowRequest "1" -- "0..1" Reservation
+Student "1" -- "0..*" Reservation
+Copy "1" -- "0..*" Reservation : historique
+Student "1" -- "0..*" Loan
+Copy "1" -- "0..*" Loan : historique
+Reservation "0..1" -- "0..1" Loan
+Loan "1" -- "0..*" Infraction
+Infraction "0..1" -- "0..*" Sanction
+Student "1" -- "0..*" Infraction
+Student "1" -- "0..*" Sanction
+Student "1" -- "0..*" Acquisition
+Book "0..1" -- "0..*" Acquisition : ouvrage acquis
+note top of CirculationService
+Service = module TypeScript, pas modèle Prisma.
+Méthodes exposées comme fonctions asynchrones.
+end note
+SchedulerService ..> CirculationService
+SchedulerService ..> SanctionService
+CirculationService ..> BorrowRequest
+CirculationService ..> Reservation
+CirculationService ..> Loan
+CirculationService ..> LibrarySettings
+CirculationService ..> SanctionService
+SanctionService ..> Infraction
+SanctionService ..> Sanction
+note right of Copy
+CopyStatus: AVAILABLE, RESERVED,
+LOANED, WITHDRAWN.
+PhysicalCondition: GOOD, DAMAGED, LOST.
+Au plus une affectation active par exemplaire.
+end note
+note bottom of User
+Bibliothécaire = User(role=LIBRARIAN).
+Administrateur = User(role=ADMIN).
+Pas de sous-classe vide ni de mot de passe.
+end note
+note bottom of Infraction
+Unicité (loanId, type) : un même retard
+ne peut être comptabilisé deux fois.
+end note
+@enduml

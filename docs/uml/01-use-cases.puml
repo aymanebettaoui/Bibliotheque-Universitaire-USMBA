@@ -1,0 +1,63 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+title Bibliothèque universitaire — Cas d'utilisation
+actor Visiteur as Visitor
+actor Étudiant as Student
+actor Bibliothécaire as Librarian
+actor Administrateur as Admin
+actor "Google OIDC" as Google
+actor "Fournisseur universitaire\n(démo ou officiel à configurer)" as University
+Student --|> Visitor
+Librarian --|> Visitor
+Admin --|> Librarian
+rectangle "Plateforme de bibliothèque" {
+ usecase "Consulter / rechercher\nle catalogue" as Catalog
+ usecase "Se connecter avec Google" as Login
+ usecase "Vérifier l'identité\nà la première inscription" as Verify
+ usecase "Vérifier physiquement une identité\n(revue administrative)" as ManualReview
+ usecase "Capturer et lire\nla carte par OCR" as OCR
+ usecase "Emprunter un ouvrage" as Borrow
+ usecase "Demander automatiquement\nun exemplaire disponible" as Request
+ usecase "Vérifier l'éligibilité et\nréserver atomiquement" as Reserve
+ usecase "Confirmer la remise physique" as Handover
+ usecase "Consulter demandes, emprunts,\nsanctions et notifications" as Dashboard
+ usecase "Enregistrer retour et état physique" as Return
+ usecase "Calculer retard / sanction" as Sanction
+ usecase "Gérer livres et exemplaires" as Inventory
+ usecase "Proposer une acquisition" as Propose
+ usecase "Étudier une proposition" as Review
+ usecase "Gérer comptes, rôles et règles" as Settings
+ usecase "Consulter le journal d'audit" as Audit
+}
+Visitor --> Catalog
+Student --> Login
+Librarian --> Login
+Google --> Login
+Student --> Verify
+Verify ..> OCR : <<include>>
+University --> Verify
+Student --> Borrow
+Borrow ..> Request : <<include>>
+Request ..> Reserve : <<include>>
+Borrow ..> Handover : <<include>>
+Librarian --> Handover
+Student --> Dashboard
+Student --> Propose
+Librarian --> Inventory
+Librarian --> Return
+Sanction ..> Return : <<extend>>\n[retard ou incident]
+Librarian --> Review
+Student --> ManualReview : solliciter
+Admin --> ManualReview : confirmer
+Admin --> Settings
+Admin --> Audit
+note bottom of Reserve
+Acceptation ou refus automatique côté serveur.
+Une réservation n'est pas encore un emprunt.
+end note
+note bottom of Verify
+OCR ≠ preuve d'identité.
+Aucun fournisseur officiel n'est fourni.
+end note
+@enduml

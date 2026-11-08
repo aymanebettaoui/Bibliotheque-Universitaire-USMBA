@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../config/db.js';
+import { listBooks,getBook } from '../repositories/catalogue.js';
+import { asyncRoute } from '../utils/http.js';
+const listSchema=z.object({q:z.string().trim().max(200).optional(),category:z.string().trim().max(100).optional(),available:z.enum(['true','false']).optional().transform(v=>v==='true'),sort:z.enum(['title','recent','year']).default('title'),page:z.coerce.number().int().min(1).max(10000).default(1),pageSize:z.coerce.number().int().min(1).max(100).default(12)});
+export const catalogueRouter=Router();
+catalogueRouter.get('/books',asyncRoute(async(req,res)=>res.json(await listBooks(listSchema.parse(req.query)))));
+catalogueRouter.get('/books/:id',asyncRoute(async(req,res)=>res.json(await getBook(z.string().uuid().parse(req.params.id)))));
+catalogueRouter.get('/categories',asyncRoute(async(_req,res)=>res.json({items:await prisma.category.findMany({orderBy:{name:'asc'}})})));

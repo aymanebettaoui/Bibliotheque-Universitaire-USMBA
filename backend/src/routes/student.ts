@@ -1,0 +1,18 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../config/db.js';
+import { requireAuth,requireRoles } from '../middleware/auth.js';
+import { HttpError } from '../middleware/error.js';
+import { asyncRoute } from '../utils/http.js';
+import { studentFor,studentDashboard,recommendations,proposeAcquisition } from '../services/student.js';
+export const studentRouter=Router();
+studentRouter.get('/me/dashboard',requireRoles('STUDENT'),asyncRoute(async(req,res)=>res.json(await studentDashboard(req.auth!.user.id))));
+studentRouter.get('/me/requests',requireRoles('STUDENT'),asyncRoute(async(req,res)=>{const s=await studentFor(req.auth!.user.id);res.json({items:await prisma.borrowRequest.findMany({where:{studentId:s.id},include:{book:{include:{authors:true,categories:true}},reservation:{include:{copy:true}}},orderBy:{createdAt:'desc'}})});}));
+studentRouter.get('/me/loans',requireRoles('STUDENT'),asyncRoute(async(req,res)=>{const s=await studentFor(req.auth!.user.id);res.json({items:await prisma.loan.findMany({where:{studentId:s.id},include:{copy:{include:{book:{include:{authors:true,categories:true}}}},infractions:{include:{sanctions:true}}},orderBy:{handedAt:'desc'}})});}));
+studentRouter.get('/me/sanctions',requireRoles('STUDENT'),asyncRoute(async(req,res)=>{const s=await studentFor(req.auth!.user.id);res.json({items:await prisma.sanction.findMany({where:{studentId:s.id},include:{infraction:{include:{loan:{include:{copy:{include:{book:{select:{title:true}}}}}}}}},orderBy:{createdAt:'desc'}})});}));
+studentRouter.get('/me/recommendations',requireRoles('STUDENT'),asyncRoute(async(req,res)=>res.json(await recommendations(req.auth!.user.id))));
+studentRouter.get('/notifications',requireAuth,asyncRoute(async(req,res)=>res.json({items:await prisma.notification.findMany({where:{userId:req.auth!.user.id},orderBy:{createdAt:'desc'},take:100})})));
+studentRouter.post('/notifications/:id/read',requireAuth,asyncRoute(async(req,res)=>{const id=z.string().uuid().parse(req.params.id);const result=await prisma.notification.updateMany({where:{id,userId:req.auth!.user.id},data:{readAt:new Date()}});if(!result.count)throw new HttpError(404,'NOTIFICATION_NOT_FOUND','Notification introuvable.');res.json({ok:true});}));
+studentRouter.get('/acquisitions',requireAuth,asyncRoute(async(req,res)=>{const student=req.auth!.user.role==='STUDENT'?await studentFor(req.auth!.user.id):null;res.json({items:await prisma.acquisition.findMany({where:student?{studentId:student.id}:{},include:student?{book:{select:{id:true,title:true}}}:{student:{include:{user:{select:{id:true,name:true,email:true}}}},book:{select:{id:true,title:true}}},orderBy:{createdAt:'desc'}})});}));
+const proposal=z.object({title:z.string().trim().min(2).max(250),author:z.string().trim().min(2).max(200),category:z.string().trim().min(2).max(100),referenceUrl:z.string().url().max(1000).refine(s=>/^https?:\/\//.test(s),'Lien HTTP(S) requis.').optional().or(z.literal('').transform(()=>undefined)),reason:z.string().trim().max(2000).optional()}).strict();
+studentRouter.post('/acquisitions',requireRoles('STUDENT'),asyncRoute(async(req,res)=>res.status(201).json(await proposeAcquisition(req.auth!.user.id,proposal.parse(req.body)))));

@@ -1,0 +1,75 @@
+@startuml
+title Emprunt d'un ouvrage physique — activité avec couloirs
+|Étudiant|
+start
+:Rechercher dans le catalogue;
+:Sélectionner un ouvrage;
+:Soumettre la demande authentifiée;
+|Système|
+:Ouvrir transaction PostgreSQL;
+:Verrouiller le profil étudiant;
+:Vérifier compte actif, identité,
+sanctions et quota (réservations + prêts);
+if (Étudiant éligible ?) then (oui)
+ :Verrouiller un exemplaire disponible
+ FOR UPDATE SKIP LOCKED;
+ if (Exemplaire disponible ?) then (oui)
+  :Accepter la demande;
+  :Créer la réservation et sa date limite;
+  :Marquer l'exemplaire RESERVED;
+  :Journaliser et notifier;
+  :Valider la transaction;
+ else (non)
+  :Refuser avec motif d'indisponibilité;
+  :Notifier et valider la transaction;
+  stop
+ endif
+else (non)
+ :Refuser avec motif d'inéligibilité;
+ :Notifier et valider la transaction;
+ stop
+endif
+|Étudiant|
+if (Récupération avant échéance ?) then (oui)
+ :Présenter carte et réservation au guichet;
+else (non)
+ |Système|
+ :Tâche serveur : expirer la réservation;
+ :Libérer l'exemplaire, journaliser, notifier;
+ stop
+endif
+|Bibliothécaire|
+:Rechercher / scanner l'identifiant étudiant;
+:Vérifier identité et code de l'exemplaire;
+:Confirmer la remise physique;
+|Système|
+:Transaction : revalider réservation,
+échéance, sanctions et exemplaire;
+if (Contrôles satisfaits ?) then (oui)
+ :Créer Loan ACTIVE, calculer dueAt;
+ :Reservation COLLECTED, Copy LOANED;
+ :Journaliser, notifier et valider;
+else (non)
+ :Refuser la remise avec motif;
+ stop
+endif
+|Étudiant|
+:Rapporter le livre physique;
+|Bibliothécaire|
+:Retrouver le prêt et contrôler l'état;
+:Enregistrer retour et état constaté;
+|Système|
+:Transaction : fermer le prêt et dater le retour;
+if (Retard ou incident ?) then (oui)
+ :Créer les infractions non déjà enregistrées;
+ :Calculer sanctions selon règles du projet;
+ :Conserver historique et notifier;
+endif
+if (État physique GOOD ?) then (oui)
+ :Copy AVAILABLE;
+else (non)
+ :Copy WITHDRAWN;
+endif
+:Journaliser et valider la transaction;
+stop
+@enduml

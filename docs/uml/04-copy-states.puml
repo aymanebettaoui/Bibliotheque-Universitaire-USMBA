@@ -1,0 +1,24 @@
+@startuml
+title Exemplaire — circulation (état physique distinct)
+state "Disponible\nAVAILABLE" as Available
+state "Réservé\nRESERVED" as Reserved
+state "Emprunté\nLOANED" as Loaned
+state "Retiré\nWITHDRAWN" as Withdrawn
+[*] --> Available : ajouter exemplaire [condition=GOOD]
+Available --> Reserved : requestBorrow [éligible et verrou acquis]\n/ créer réservation ACTIVE + échéance
+Reserved --> Available : expireReservations ou annulation\n[condition=GOOD] / clôturer réservation
+Reserved --> Loaned : handover [identité, code, échéance valides]\n/ réservation COLLECTED, créer prêt ACTIVE
+Loaned --> Available : returnLoan [condition=GOOD]\n/ terminer prêt, enregistrer retard éventuel
+Loaned --> Withdrawn : returnLoan [condition=DAMAGED ou LOST]\n/ terminer prêt et appliquer sanction
+Available --> Withdrawn : retrait justifié / journaliser
+Withdrawn --> Available : contrôle après réparation\n[condition=GOOD et aucune affectation active]
+note right of Loaned
+Le retard modifie Loan.status (OVERDUE),
+mais conserve Copy.status = LOANED.
+end note
+note bottom of Withdrawn
+Copy.condition : GOOD, DAMAGED, LOST.
+Aucune remise en circulation automatique
+d'un exemplaire endommagé ou perdu.
+end note
+@enduml
