@@ -18,6 +18,19 @@ Copier `.env.example` vers `.env` à la racine. Ce fichier reste local et ne doi
 
 Le volume Docker persiste après l'arrêt. Les variables d'initialisation PostgreSQL ne changent pas automatiquement le mot de passe d'un volume déjà initialisé. Modifier un déploiement existant exige une migration/administration explicite de PostgreSQL.
 
+### Mettre à niveau la base locale existante
+
+La base locale préexistante à cette restructuration ne possédait pas de table `_prisma_migrations` et il lui manquait les gardes SQL personnalisées de la migration initiale. Le 9 novembre 2026, elle a été sauvegardée, réconciliée, baselinée puis migrée avec `20261108500000_reconcile_initial_guards` et `20261109000000_remove_admin_role`. Les trois migrations sont maintenant enregistrées et Prisma confirme que son schéma est à jour.
+
+La réconciliation ajoute, sans suppression de données, 3 fonctions, 5 triggers, 2 index uniques partiels et 6 contraintes `CHECK`. Pour une autre base historique dans la même situation, elle doit être exécutée et contrôlée avant d'enregistrer la migration initiale comme baseline. La procédure validée est : sauvegarde, contrôles de données avec `scripts/sql/verify-reconciliation.sql`, application manuelle du SQL de réconciliation, comparaison au schéma initial, baseline, puis déploiement Prisma. Les commandes ci-dessous ne viennent qu'après la réconciliation et sa comparaison réussie :
+
+```powershell
+npx prisma migrate resolve --applied 20261108000000_initial --schema backend/prisma/schema.prisma
+npm run db:migrate
+```
+
+Ces commandes modifient l'historique et le schéma de la base désignée par `DATABASE_URL` ; elles exigent donc une autorisation explicite et ne doivent jamais être lancées sur une base non sauvegardée ou dont la correspondance n'a pas été contrôlée. La migration Phase B convertit les anciens comptes `ADMIN` en `LIBRARIAN`, conserve leurs identifiants et relations, et leur attribue les quatre habilitations sensibles.
+
 ## Configurer Google Identity Services
 
 1. Ouvrir <https://console.cloud.google.com/> avec le compte autorisé à administrer le projet.
@@ -34,13 +47,13 @@ Le backend utilise `google-auth-library` pour vérifier signature, audience et v
 
 ## Provisionner le personnel
 
-Une personne disposant de l'accès administratif au terminal et à PostgreSQL peut créer un compte de personnel avant sa première connexion Google. À la racine :
+Une personne disposant d'un accès local contrôlé au serveur et à PostgreSQL peut créer un compte de bibliothécaire avant sa première connexion Google. À la racine :
 
 ```powershell
-npm run provision:staff -- --email bibliothecaire@votre-institution.ma --name "Nom Prénom" --role LIBRARIAN --confirm-local-admin-access
+npm run provision:staff -- --email bibliothecaire@votre-institution.ma --name "Nom Prénom" --confirm-local-server-access
 ```
 
-Pour le premier administrateur, remplacer `LIBRARIAN` par `ADMIN`. Le script n'est pas une route publique et n'est accessible qu'à l'opérateur du serveur. Il crée un nouveau compte ; les changements ultérieurs passent par l'administrateur de l'application et sont audités.
+Le script crée toujours le rôle `LIBRARIAN` et n'est exposé par aucune route HTTP. Pour le premier responsable habilité à gérer comptes, paramètres, audit et révocations exceptionnelles, ajouter `--grant-sensitive-management`. L'opérateur doit vérifier l'identité avant exécution ; la création est auditée. Une inscription Google publique ne peut jamais fournir ce rôle ni ces permissions.
 
 L'option `--google-sub` permet de préassocier l'identifiant Google stable connu. Sans cette option, la première connexion Google vérifiée avec l'email préattribué associe le `sub`. Contrôler soigneusement l'adresse et l'identité avant cette préattribution. Les comptes étudiants nouvellement inscrits restent STUDENT et ne peuvent choisir leur rôle.
 
@@ -66,9 +79,9 @@ Pour une intégration réelle :
 4. Remplacer l'instance du connecteur officiel par votre implémentation ; tester refus, indisponibilité, identité non concordante et doublon.
 5. Ne jamais traiter une simple chaîne OCR comme une preuve d'inscription.
 
-Le fournisseur `DemoUniversityConnector` utilise les étudiants fictifs connus et les identités `demo:*`. Une carte fictive téléchargeable dans ce parcours correspond au fichier `tests/fixtures/demo-student-card.png`. Le bouton démo « Tester l’inscription par scan » sélectionne uniquement `demo:onboarding` (Samir Exemple), initialement non vérifié ; sa carte fictive porte le numéro `R202400003`. Après vérification, ce profil ne repasse pas par le scan à chaque connexion. Réinitialiser la base fictive pour reproduire la première inscription. Il refuse un vrai compte Google, même si le mode démo est activé. Le libellé reste « Vérification simulée — environnement de démonstration ».
+Le fournisseur `DemoUniversityConnector` utilise les étudiants fictifs connus et les identités `demo:*`. La carte servie au navigateur est `frontend/public/demo-card.png` et la fixture OCR équivalente est `tests/fixtures/demo-student-card.png`. Le bouton démo « Tester l’inscription par scan » sélectionne uniquement `demo:onboarding` (Samir Exemple), dont la carte porte `R202400003`. Après vérification, ce profil ne repasse pas par le scan. Pour rejouer le parcours, `scripts/start-e2e.mjs` remet uniquement ce profil en état d'inscription dans `library_test`; il ne réinitialise pas la base. Le connecteur refuse un vrai compte Google, même en mode démo. Le libellé reste « Vérification simulée — environnement de démonstration ».
 
-Une **revue administrative physique** est un parcours distinct : un étudiant peut demander un examen ; ADMIN consulte les demandes puis confirme explicitement un contrôle physique avec numéro et motif. La trace porte le fournisseur `ADMIN_REVIEW`, pas `OFFICIAL`. Cette procédure ne doit pas être présentée comme un appel à une API universitaire.
+Une **revue physique habilitée** est un parcours distinct : un étudiant peut demander un examen ; un bibliothécaire disposant de `canManageUsers` consulte la demande puis confirme le contrôle avec numéro et motif. La trace porte le fournisseur `LIBRARIAN_REVIEW`, pas `OFFICIAL`. Cette procédure ne doit pas être présentée comme un appel à une API universitaire.
 
 ## Déploiement d'exploitation
 

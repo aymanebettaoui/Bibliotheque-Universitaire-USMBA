@@ -18,7 +18,7 @@ export const patch = <T = any>(path: string, body: unknown) => api<T>(path, { me
 export const date = (value?: string | null, withTime = false) => value ? new Intl.DateTimeFormat('fr-MA', { timeZone: 'Africa/Casablanca', day: 'numeric', month: 'short', year: 'numeric', ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}) }).format(new Date(value)) : '—';
 export const money = (value?: string | number) => new Intl.NumberFormat('fr-MA', { style: 'currency', currency: 'MAD' }).format(Number(value || 0));
 export const labels: Record<string, string> = {
-  STUDENT: 'Étudiant', LIBRARIAN: 'Bibliothécaire', ADMIN: 'Administrateur',
+  STUDENT: 'Étudiant', LIBRARIAN: 'Bibliothécaire',
   AVAILABLE: 'Disponible', RESERVED: 'Réservé', LOANED: 'Emprunté', WITHDRAWN: 'Retiré',
   GOOD: 'Bon état', DAMAGED: 'Endommagé', LOST: 'Perdu',
   PENDING: 'En attente', ACCEPTED: 'Acceptée', REFUSED: 'Refusée', EXPIRED: 'Expirée', CANCELLED: 'Annulée',

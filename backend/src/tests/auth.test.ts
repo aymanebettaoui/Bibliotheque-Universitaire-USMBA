@@ -15,10 +15,11 @@ const sessionIds: string[] = [];
 const challengeNonces: string[] = [];
 let app: ReturnType<typeof createApp>;
 
-async function fixture(role: Role = 'STUDENT', verified = false) {
+async function fixture(role: Role = 'STUDENT', verified = false, sensitive = false) {
   const run = randomUUID();
   const user = await prisma.user.create({ data: {
     email: `auth-${run}@usmba.ac.ma`, googleSub: `auth-test:${run}`, name: `Test ${role}`, role,
+    canManageUsers: sensitive, canManageSettings: sensitive, canViewAudit: sensitive, canRevokeSanctions: sensitive,
     ...(role === 'STUDENT' ? { student: { create: { verified } } } : {}),
   }, include: { student: true } });
   fixtureIds.push(user.id);
@@ -110,11 +111,11 @@ describe('Sessions réelles, CSRF et restrictions de rôle', () => {
     expect((await request(app).get('/api/auth/me').set('Cookie', f.cookie)).body.user).toBeNull();
     expect(await prisma.session.findUnique({ where: { id: f.sessionId } })).toBeNull();
   });
-  it('ne permet pas à un étudiant d’accéder au personnel ou aux rôles administratifs', async () => {
+  it('ne permet pas à un étudiant d’accéder au personnel ou à la gestion sensible', async () => {
     const f = await fixture();
     await request(app).get('/api/staff/dashboard').set('Cookie', f.cookie).expect(403);
-    await request(app).get('/api/admin/users').set('Cookie', f.cookie).expect(403);
-    await request(app).patch(`/api/admin/users/${f.user.id}`).set('Cookie', f.cookie).set('Origin', origin).set('X-CSRF-Token', f.csrfToken).send({ role: 'ADMIN' }).expect(403);
+    await request(app).get('/api/staff/users').set('Cookie', f.cookie).expect(403);
+    await request(app).patch(`/api/staff/users/${f.user.id}`).set('Cookie', f.cookie).set('Origin', origin).set('X-CSRF-Token', f.csrfToken).send({ active: false }).expect(403);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: f.user.id } })).role).toBe('STUDENT');
   });
   it('révoque la session à la déconnexion et masque les champs internes', async () => {
@@ -133,7 +134,7 @@ describe('Sessions réelles, CSRF et restrictions de rôle', () => {
     const me = await agent.get('/api/auth/me');
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('DEMO_MODE', 'true');
-    await agent.post('/api/auth/demo').set('Origin', origin).set('X-CSRF-Token', me.body.csrfToken).send({ role: 'ADMIN' }).expect(404);
+    await agent.post('/api/auth/demo').set('Origin', origin).set('X-CSRF-Token', me.body.csrfToken).send({ role: 'LIBRARIAN' }).expect(404);
   });
   it('refuse une configuration production avec secret exemple ou démonstration', () => {
     vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('DEMO_MODE', 'true');
@@ -175,7 +176,7 @@ describe('Vérification universitaire et repli administratif', () => {
       const anonymous = await agent.get('/api/auth/me').expect(200);
       const login = await agent.post('/api/auth/demo').set('Origin', origin).set('X-CSRF-Token', anonymous.body.csrfToken).send({ role: 'STUDENT', scenario: 'ONBOARDING' }).expect(200);
       expect(login.body.user).toMatchObject({ id: target.id, role: 'STUDENT', student: { verified: false, studentNumber: null } });
-      await agent.post('/api/auth/demo').set('Origin', origin).set('X-CSRF-Token', login.body.csrfToken).send({ role: 'ADMIN', scenario: 'ONBOARDING' }).expect(400);
+      await agent.post('/api/auth/demo').set('Origin', origin).set('X-CSRF-Token', login.body.csrfToken).send({ role: 'LIBRARIAN', scenario: 'ONBOARDING' }).expect(400);
       const verified = await agent.post('/api/onboarding/verify').set('Origin', origin).set('X-CSRF-Token', login.body.csrfToken).send({ studentNumber: 'R202400003' }).expect(200);
       expect(verified.body.verification).toMatchObject({ provider: 'DEMO', status: 'VERIFIED', message: 'Vérification simulée — environnement de démonstration' });
       expect(verified.body.user.student).toMatchObject({ verified: true, studentNumber: 'R202400003' });
@@ -208,22 +209,22 @@ describe('Vérification universitaire et repli administratif', () => {
     expect((await prisma.student.findUniqueOrThrow({ where: { userId: f.user.id } })).verified).toBe(false);
     expect(await prisma.identityVerification.findFirst({ where: { userId: f.user.id, status: 'UNAVAILABLE' } })).not.toBeNull();
   });
-  it('permet un contrôle physique justifié uniquement par l’administrateur, conserve la preuve et évite les doublons', async () => {
+  it('permet un contrôle physique justifié uniquement par un bibliothécaire habilité, conserve la preuve et évite les doublons', async () => {
     const f = await fixture();
-    const admin = await fixture('ADMIN');
+    const manager = await fixture('LIBRARIAN', false, true);
     const number = `T${Date.now().toString().slice(-10)}`;
     await request(app).post('/api/onboarding/review').set('Cookie', f.cookie).set('Origin', origin).set('X-CSRF-Token', f.csrfToken).send({ reason: 'La caméra ne fonctionne pas sur mon ordinateur.' }).expect(201);
-    const pending = await request(app).get('/api/admin/identity-reviews').set('Cookie', admin.cookie).expect(200);
+    const pending = await request(app).get('/api/staff/identity-reviews').set('Cookie', manager.cookie).expect(200);
     expect(pending.body.items.some((row: { userId: string }) => row.userId === f.user.id)).toBe(true);
-    await request(app).post(`/api/admin/students/${f.user.student!.id}/verify`).set('Cookie', f.cookie).set('Origin', origin).set('X-CSRF-Token', f.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(403);
-    await request(app).post(`/api/admin/students/${f.user.student!.id}/verify`).set('Cookie', admin.cookie).set('Origin', origin).set('X-CSRF-Token', admin.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: false }).expect(400);
-    const result = await request(app).post(`/api/admin/students/${f.user.student!.id}/verify`).set('Cookie', admin.cookie).set('Origin', origin).set('X-CSRF-Token', admin.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(200);
-    expect(result.body.verification.provider).toBe('ADMIN_REVIEW');
+    await request(app).post(`/api/staff/students/${f.user.student!.id}/verify`).set('Cookie', f.cookie).set('Origin', origin).set('X-CSRF-Token', f.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(403);
+    await request(app).post(`/api/staff/students/${f.user.student!.id}/verify`).set('Cookie', manager.cookie).set('Origin', origin).set('X-CSRF-Token', manager.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: false }).expect(400);
+    const result = await request(app).post(`/api/staff/students/${f.user.student!.id}/verify`).set('Cookie', manager.cookie).set('Origin', origin).set('X-CSRF-Token', manager.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(200);
+    expect(result.body.verification.provider).toBe('LIBRARIAN_REVIEW');
     expect((await request(app).get('/api/auth/me').set('Cookie', f.cookie)).body.user.student.verified).toBe(true);
-    expect(await prisma.auditLog.findFirst({ where: { entityId: f.user.student!.id, action: 'IDENTITY_VERIFIED_MANUALLY', userId: admin.user.id } })).not.toBeNull();
-    await request(app).post(`/api/admin/students/${f.user.student!.id}/verify`).set('Cookie', admin.cookie).set('Origin', origin).set('X-CSRF-Token', admin.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(409);
+    expect(await prisma.auditLog.findFirst({ where: { entityId: f.user.student!.id, action: 'IDENTITY_VERIFIED_MANUALLY', userId: manager.user.id } })).not.toBeNull();
+    await request(app).post(`/api/staff/students/${f.user.student!.id}/verify`).set('Cookie', manager.cookie).set('Origin', origin).set('X-CSRF-Token', manager.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(409);
     const another = await fixture();
-    await request(app).post(`/api/admin/students/${another.user.student!.id}/verify`).set('Cookie', admin.cookie).set('Origin', origin).set('X-CSRF-Token', admin.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(409);
+    await request(app).post(`/api/staff/students/${another.user.student!.id}/verify`).set('Cookie', manager.cookie).set('Origin', origin).set('X-CSRF-Token', manager.csrfToken).send({ studentNumber: number, reason: 'Carte originale vérifiée au guichet par un agent.', physicalConfirmed: true }).expect(409);
     expect((await prisma.student.findUniqueOrThrow({ where: { id: another.user.student!.id } })).verified).toBe(false);
   });
 });
@@ -265,7 +266,7 @@ describe('Parcours Google après la frontière de vérification cryptographique 
     const challenge = await agent.get('/api/auth/google/nonce').expect(200);
     challengeNonces.push(challenge.body.nonce);
     await agent.post('/api/auth/google').set('Origin', origin).set('X-CSRF-Token', challenge.body.csrfToken).send({ credential: `external-credential-${run}`, nonce: challenge.body.nonce }).expect(403);
-    await agent.post('/api/auth/google').set('Origin', origin).set('X-CSRF-Token', challenge.body.csrfToken).send({ credential: `external-credential-${run}`, nonce: challenge.body.nonce, role: 'ADMIN' }).expect(400);
+    await agent.post('/api/auth/google').set('Origin', origin).set('X-CSRF-Token', challenge.body.csrfToken).send({ credential: `external-credential-${run}`, nonce: challenge.body.nonce, role: 'LIBRARIAN' }).expect(400);
     expect(await prisma.user.findUnique({ where: { googleSub: `external:${run}` } })).toBeNull();
   });
 });

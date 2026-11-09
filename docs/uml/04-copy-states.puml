@@ -21,4 +21,9 @@ Copy.condition : GOOD, DAMAGED, LOST.
 Aucune remise en circulation automatique
 d'un exemplaire endommagé ou perdu.
 end note
+note left of Available
+Copy.status décrit la circulation.
+Copy.condition décrit l'état physique :
+ces deux dimensions restent séparées.
+end note
 @enduml

@@ -36,12 +36,10 @@ authRouter.get('/auth/google/nonce', loginLimiter, asyncHandler(async (_req, res
 
 authRouter.post('/auth/demo', loginLimiter, asyncHandler(async (req, res) => {
   if (!demoEnabled()) throw new HttpError(404, 'NOT_FOUND', 'Cette route est indisponible.');
-  const { role, scenario } = z.object({ role: z.enum(['STUDENT', 'LIBRARIAN', 'ADMIN']), scenario: z.literal('ONBOARDING').optional() }).strict()
+  const { role, scenario } = z.object({ role: z.enum(['STUDENT', 'LIBRARIAN']), scenario: z.literal('ONBOARDING').optional() }).strict()
     .refine(input => !input.scenario || input.role === 'STUDENT', 'Le parcours d’inscription est réservé au profil étudiant fictif.').parse(req.body);
-  const user = await prisma.user.findFirst({
-    where: { role, googleSub: scenario === 'ONBOARDING' ? 'demo:onboarding' : { startsWith: 'demo:', not: 'demo:onboarding' }, active: true },
-    include: { student: true }, orderBy: { email: 'asc' },
-  });
+  const demoSubject = scenario === 'ONBOARDING' ? 'demo:onboarding' : role === 'LIBRARIAN' ? 'demo:librarian' : 'demo:student';
+  const user = await prisma.user.findFirst({ where: { role, googleSub: demoSubject, active: true }, include: { student: true } });
   if (!user) throw new HttpError(503, 'DEMO_NOT_SEEDED', 'Les comptes fictifs ne sont pas disponibles. Exécutez le peuplement de démonstration.');
   const token = opaqueToken();
   const csrfToken = opaqueToken();
@@ -74,7 +72,7 @@ authRouter.post('/auth/google', loginLimiter, asyncHandler(async (req, res) => {
     if (!account) {
       const provisioned = await tx.user.findUnique({ where: { email: claims.email }, include: { student: true } });
       if (provisioned) {
-        if (provisioned.googleSub || provisioned.role === 'STUDENT') throw new HttpError(409, 'GOOGLE_ACCOUNT_CONFLICT', 'Cette adresse est déjà liée à une autre identité. Contactez l’administration.');
+        if (provisioned.googleSub || provisioned.role === 'STUDENT') throw new HttpError(409, 'GOOGLE_ACCOUNT_CONFLICT', 'Cette adresse est déjà liée à une autre identité. Contactez l’équipe de la bibliothèque.');
         account = await tx.user.update({ where: { id: provisioned.id }, data: { googleSub: claims.sub }, include: { student: true } });
       } else {
         if (!hasUniversityDomain(claims.email)) throw new HttpError(403, 'UNIVERSITY_DOMAIN_REQUIRED', 'Utilisez votre compte universitaire @usmba.ac.ma.');
@@ -82,7 +80,7 @@ authRouter.post('/auth/google', loginLimiter, asyncHandler(async (req, res) => {
       }
     }
     if (account.role === 'STUDENT' && !hasUniversityDomain(claims.email)) throw new HttpError(403, 'UNIVERSITY_DOMAIN_REQUIRED', 'Utilisez votre compte universitaire @usmba.ac.ma.');
-    if (!account.active) throw new HttpError(403, 'ACCOUNT_INACTIVE', 'Ce compte est désactivé. Contactez l’administration.');
+    if (!account.active) throw new HttpError(403, 'ACCOUNT_INACTIVE', 'Ce compte est désactivé. Contactez l’équipe de la bibliothèque.');
     if (account.email !== claims.email) account = await tx.user.update({ where: { id: account.id }, data: { email: claims.email }, include: { student: true } });
     if (req.auth) await tx.session.deleteMany({ where: { id: req.auth.sessionId } });
     await tx.session.create({ data: { tokenHash: hashToken(rawSession), userId: account.id, csrfToken, expiresAt: new Date(Date.now() + sessionLifetimeMs) } });

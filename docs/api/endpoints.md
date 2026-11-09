@@ -17,7 +17,7 @@ Statuts usuels : 400 entrée invalide, 401 absence de session/jeton invalide, 40
 | GET `/auth/me` | Public/session | `{user,csrfToken,demo,googleClientId,universityConfigured}` ; user peut être null. |
 | GET `/auth/google/nonce` | Préauth | Crée un défi/nonce à usage unique, renvoie `{nonce,csrfToken}`. |
 | POST `/auth/google` | Préauth CSRF | `{credential,nonce}` ; vérifie Google, crée une session sécurisée. |
-| POST `/auth/demo` | Démo hors production | `{role:"STUDENT"\|"LIBRARIAN"\|"ADMIN",scenario?:"ONBOARDING"}` ; scénario seulement avec STUDENT, sélectionne exclusivement les comptes fictifs prédéfinis. ONBOARDING ouvre Samir non vérifié, aucun id arbitraire. |
+| POST `/auth/demo` | Démo hors production | `{role:"STUDENT"\|"LIBRARIAN",scenario?:"ONBOARDING"}` ; scénario seulement avec STUDENT, sélectionne exclusivement les comptes fictifs prédéfinis. ONBOARDING ouvre Samir, aucun id arbitraire. |
 | POST `/auth/logout` | Session/CSRF | Détruit la session et efface le cookie. |
 | POST `/onboarding/verify` | Étudiant | `{studentNumber}` ; appelle le connecteur, jamais l'OCR comme preuve. |
 | POST `/onboarding/review` | Étudiant | `{reason,studentNumber?}` ; motif de 10 à 500 caractères, numéro une lettre puis 8 à 11 chiffres si renseigné. |
@@ -40,7 +40,7 @@ Statuts usuels : 400 entrée invalide, 401 absence de session/jeton invalide, 40
 
 ## Personnel
 
-LIBRARIAN et ADMIN sont autorisés ; STUDENT reçoit 403 même s'il fabrique directement la requête.
+LIBRARIAN est autorisé ; STUDENT reçoit 403 même s'il fabrique directement la requête. Certaines routes sensibles exigent en plus une permission explicite.
 
 | Méthode / route | Corps / résultat |
 | --- | --- |
@@ -62,18 +62,20 @@ LIBRARIAN et ADMIN sont autorisés ; STUDENT reçoit 403 même s'il fabrique dir
 
 GET `/covers/:filename.webp` sert les couvertures validées. Cette route ne sert pas à téléverser des cartes étudiantes. Le cookie, Origin et le jeton CSRF restent obligatoires pour le téléversement.
 
-## Administration
+## Gestion sensible du bibliothécaire
+
+Ces routes conservent le rôle `LIBRARIAN` et exigent la permission indiquée. Aucune route publique ne permet d'attribuer un rôle ou une permission.
 
 | Méthode / route | Corps / résultat |
 | --- | --- |
-| GET `/admin/settings` | Paramètres singleton. |
-| PATCH `/admin/settings` | `{maxLoans,loanDays,pickupHours,lateSuspensionDays,minorDamageDays}` dans les bornes validées. |
-| GET `/admin/users` | Utilisateurs et rôles. |
-| PATCH `/admin/users/:id` | `{role?,active?}` ; protège le dernier admin, invalide les sessions affectées et journalise. |
-| GET `/admin/audit` | Événements d'audit. |
-| POST `/admin/sanctions/:id/revoke` | `{reason}` ; correction administrative auditée. |
-| GET `/admin/identity-reviews` | Dossiers de vérification administrative. |
-| POST `/admin/students/:id/verify` | `{studentNumber,reason,physicalConfirmed:true}` ; raison de 20 à 500 caractères et contrôle physique explicite ; fournisseur ADMIN_REVIEW. |
+| GET `/staff/settings` | Paramètres singleton ; `canManageSettings`. |
+| PATCH `/staff/settings` | `{maxLoans,loanDays,pickupHours,lateSuspensionDays,minorDamageDays}` ; `canManageSettings`. |
+| GET `/staff/users` | Utilisateurs, rôles et habilitations ; `canManageUsers`. |
+| PATCH `/staff/users/:id` | `{active}` uniquement ; interdit l'auto-désactivation, révoque les sessions et journalise ; `canManageUsers`. |
+| GET `/staff/audit` | 200 derniers événements ; `canViewAudit`. |
+| POST `/staff/sanctions/:id/revoke` | `{reason}` ; correction exceptionnelle auditée ; `canRevokeSanctions`. |
+| GET `/staff/identity-reviews` | Dossiers de contrôle physique ; `canManageUsers`. |
+| POST `/staff/students/:id/verify` | `{studentNumber,reason,physicalConfirmed:true}` ; contrôle physique explicite ; fournisseur `LIBRARIAN_REVIEW`, permission `canManageUsers`. |
 
 ## Exemple de scénario HTTP
 

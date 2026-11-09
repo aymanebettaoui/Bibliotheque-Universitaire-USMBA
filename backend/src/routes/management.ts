@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/db.js';
-import { requireRoles } from '../middleware/auth.js';
+import { requirePermission, requireRoles } from '../middleware/auth.js';
 import { asyncRoute } from '../utils/http.js';
-import { saveBook,addCopies,updateCopy,reviewAcquisition,settleSanction,updateUser,staffDashboard } from '../services/management.js';
+import { saveBook,addCopies,updateCopy,reviewAcquisition,settleSanction,updateUserActivation,staffDashboard } from '../services/management.js';
 import { publicBookInclude,serializeBook } from '../repositories/catalogue.js';
 const uuid=z.string().uuid();
 const name=z.string().trim().min(1).max(200);
 const bookSchema=z.object({title:z.string().trim().min(2).max(250),authors:z.array(name).min(1).max(10),categories:z.array(name).min(1).max(10),isbn:z.string().trim().max(30).nullable().optional().transform(v=>v||null),publisher:z.string().trim().max(200).nullable().optional(),year:z.number().int().min(1000).max(new Date().getFullYear()+1).nullable().optional(),description:z.string().max(10000).optional(),priceDh:z.coerce.number().min(0).max(999999.99),coverColor:z.string().regex(/^#[0-9a-f]{6}$/i).optional(),archived:z.boolean().optional()}).strict();
 export const managementRouter=Router();
-const staff=requireRoles('LIBRARIAN','ADMIN'); const admin=requireRoles('ADMIN');
+const staff=requireRoles('LIBRARIAN');
 managementRouter.get('/staff/dashboard',staff,asyncRoute(async(_req,res)=>res.json(await staffDashboard())));
 managementRouter.get('/staff/books',staff,asyncRoute(async(_req,res)=>res.json({items:(await prisma.book.findMany({include:publicBookInclude,orderBy:{createdAt:'desc'}})).map(serializeBook)})));
 managementRouter.post('/staff/books',staff,asyncRoute(async(req,res)=>res.status(201).json(await saveBook(req.auth!.user.id,bookSchema.parse(req.body)))));
@@ -20,12 +20,15 @@ managementRouter.patch('/staff/acquisitions/:id',staff,asyncRoute(async(req,res)
 managementRouter.get('/staff/sanctions',staff,asyncRoute(async(_req,res)=>res.json({items:await prisma.sanction.findMany({include:{student:{include:{user:{select:{id:true,name:true,email:true}}}},infraction:{include:{loan:{include:{copy:{include:{book:{select:{title:true}}}}}}}}},orderBy:{createdAt:'desc'}})})));
 const reasonSchema=z.object({reason:z.string().trim().min(3).max(1000)}).strict();
 managementRouter.post('/staff/sanctions/:id/settle',staff,asyncRoute(async(req,res)=>res.json(await settleSanction(req.auth!.user.id,uuid.parse(req.params.id),reasonSchema.parse(req.body).reason))));
-managementRouter.post('/admin/sanctions/:id/revoke',admin,asyncRoute(async(req,res)=>res.json(await settleSanction(req.auth!.user.id,uuid.parse(req.params.id),reasonSchema.parse(req.body).reason,true))));
-managementRouter.get('/admin/settings',admin,asyncRoute(async(_req,res)=>res.json(await prisma.librarySettings.upsert({where:{id:'singleton'},create:{id:'singleton'},update:{}}))));
+managementRouter.post('/staff/sanctions/:id/revoke',staff,requirePermission('canRevokeSanctions'),asyncRoute(async(req,res)=>res.json(await settleSanction(req.auth!.user.id,uuid.parse(req.params.id),reasonSchema.parse(req.body).reason,true))));
+managementRouter.get('/staff/settings',staff,requirePermission('canManageSettings'),asyncRoute(async(_req,res)=>res.json(await prisma.librarySettings.upsert({where:{id:'singleton'},create:{id:'singleton'},update:{}}))));
 const settingsSchema=z.object({maxLoans:z.number().int().min(1).max(20),loanDays:z.number().int().min(1).max(365),pickupHours:z.number().int().min(1).max(720),lateSuspensionDays:z.number().int().min(1).max(365),minorDamageDays:z.number().int().min(1).max(365)}).strict();
-managementRouter.patch('/admin/settings',admin,asyncRoute(async(req,res)=>{
+managementRouter.patch('/staff/settings',staff,requirePermission('canManageSettings'),asyncRoute(async(req,res)=>{
   const values=settingsSchema.parse(req.body);const result=await prisma.$transaction(async tx=>{const before=await tx.librarySettings.findUnique({where:{id:'singleton'}});const saved=await tx.librarySettings.upsert({where:{id:'singleton'},create:{id:'singleton',...values},update:values});await tx.auditLog.create({data:{userId:req.auth!.user.id,action:'SETTINGS_UPDATED',entity:'LibrarySettings',entityId:'singleton',details:{before:before?{maxLoans:before.maxLoans,loanDays:before.loanDays,pickupHours:before.pickupHours,lateSuspensionDays:before.lateSuspensionDays,minorDamageDays:before.minorDamageDays}:null,after:values}}});return saved;});res.json(result);
 }));
-managementRouter.get('/admin/users',admin,asyncRoute(async(_req,res)=>res.json({items:await prisma.user.findMany({select:{id:true,name:true,email:true,role:true,active:true,createdAt:true,student:true},orderBy:{name:'asc'}})})));
-managementRouter.patch('/admin/users/:id',admin,asyncRoute(async(req,res)=>res.json(await updateUser(req.auth!.user.id,uuid.parse(req.params.id),z.object({role:z.enum(['STUDENT','LIBRARIAN','ADMIN']).optional(),active:z.boolean().optional()}).strict().refine(v=>Object.keys(v).length>0,'Une modification est nécessaire.').parse(req.body)))));
-managementRouter.get('/admin/audit',admin,asyncRoute(async(_req,res)=>res.json({items:await prisma.auditLog.findMany({include:{user:{select:{id:true,name:true,email:true}}},orderBy:{createdAt:'desc'},take:200})})));
+managementRouter.get('/staff/users',staff,requirePermission('canManageUsers'),asyncRoute(async(_req,res)=>res.json({items:await prisma.user.findMany({select:{id:true,name:true,email:true,role:true,active:true,createdAt:true,student:true,canManageUsers:true,canManageSettings:true,canViewAudit:true,canRevokeSanctions:true},orderBy:{name:'asc'}})})));
+managementRouter.patch('/staff/users/:id',staff,requirePermission('canManageUsers'),asyncRoute(async(req,res)=>{
+  const {active}=z.object({active:z.boolean()}).strict().parse(req.body);
+  res.json(await updateUserActivation(req.auth!.user.id,uuid.parse(req.params.id),active));
+}));
+managementRouter.get('/staff/audit',staff,requirePermission('canViewAudit'),asyncRoute(async(_req,res)=>res.json({items:await prisma.auditLog.findMany({include:{user:{select:{id:true,name:true,email:true}}},orderBy:{createdAt:'desc'},take:200})})));

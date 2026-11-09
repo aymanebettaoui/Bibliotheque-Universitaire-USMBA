@@ -7,9 +7,17 @@ import { CheckCircle2, AlertCircle, X } from 'lucide-react';
 const AuthContext = createContext<{ session?: Session; loading: boolean; error: Error | null; refresh: () => Promise<void>; logout: () => Promise<void> }>({ loading: true, error: null, refresh: async () => {}, logout: async () => {} });
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ['session'], queryFn: async () => { const session = await api<Session>('/auth/me'); setCsrf(session.csrfToken); return session; }, staleTime: 60_000, retry: 1 });
-  async function refresh() { await queryClient.invalidateQueries({ queryKey: ['session'] }); }
-  async function logout() { await post('/auth/logout'); queryClient.clear(); await refresh(); }
+  const loadSession = async () => { const session = await api<Session>('/auth/me'); setCsrf(session.csrfToken); return session; };
+  const query = useQuery({ queryKey: ['session'], queryFn: loadSession, staleTime: 60_000, retry: 1 });
+  async function refresh() { const session = await loadSession(); queryClient.setQueryData(['session'], session); }
+  async function logout() {
+    await post('/auth/logout');
+    setCsrf('');
+    queryClient.removeQueries({ predicate: item => item.queryKey[0] !== 'session' });
+    const current = queryClient.getQueryData<Session>(['session']);
+    if (current) queryClient.setQueryData<Session>(['session'], { ...current, user: null, csrfToken: '' });
+    try { await refresh(); } catch { /* Server confirmed logout; keep local state anonymous. */ }
+  }
   return <AuthContext.Provider value={{ session: query.data, loading: query.isLoading, error: query.error, refresh, logout }}>{children}</AuthContext.Provider>;
 }
 export const useAuth = () => useContext(AuthContext);

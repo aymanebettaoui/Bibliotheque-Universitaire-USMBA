@@ -4,23 +4,24 @@
 
 « Ses données » signifie une restriction serveur sur l'identifiant issu de la session, et non un filtre d'affichage facultatif.
 
-| Opération | Public | STUDENT | LIBRARIAN | ADMIN |
-| --- | --- | --- | --- | --- |
-| Catalogue et détail sans emprunteur | Oui | Oui | Oui | Oui |
-| Demander/réserver un ouvrage | Non | Oui, pour soi | Non | Non |
-| Demandes, prêts et sanctions personnels | Non | Ses données | Via back-office | Via back-office |
-| Notifications | Non | Ses données | Ses données | Ses données |
-| Proposer une acquisition | Non | Oui | Non | Non |
-| Étudier les propositions | Non | Non | Oui | Oui |
-| Ajouter/archiver un livre, gérer exemplaires | Non | Non | Oui | Oui |
-| Remise physique et retour | Non | Non | Oui | Oui |
-| Consulter étudiants et sanctions | Non | Non | Oui | Oui |
-| Enregistrer un règlement d'amende | Non | Non | Oui, motif obligatoire | Oui, motif obligatoire |
-| Révoquer une sanction | Non | Non | Non | Oui, motif obligatoire |
-| Paramètres, comptes et rôles | Non | Non | Non | Oui |
-| Journal d'audit | Non | Non | Non | Oui |
+| Opération | Public | STUDENT | LIBRARIAN |
+| --- | --- | --- | --- |
+| Catalogue et détail sans emprunteur | Oui | Oui | Oui |
+| Demander/réserver un ouvrage | Non | Oui, pour soi | Non |
+| Demandes, prêts et sanctions personnels | Non | Ses données | Via espace de gestion |
+| Notifications | Non | Ses données | Ses données |
+| Proposer une acquisition | Non | Oui | Non |
+| Étudier les propositions | Non | Non | Oui |
+| Ajouter/archiver un livre, gérer exemplaires | Non | Non | Oui |
+| Remise physique et retour | Non | Non | Oui |
+| Consulter étudiants et sanctions | Non | Non | Oui |
+| Enregistrer un règlement d'amende | Non | Non | Oui, motif obligatoire |
+| Révoquer une sanction | Non | Non | Permission `canRevokeSanctions` |
+| Paramètres | Non | Non | Permission `canManageSettings` |
+| Comptes / contrôles physiques | Non | Non | Permission `canManageUsers` |
+| Journal d'audit | Non | Non | Permission `canViewAudit` |
 
-Un administrateur garde les droits opérationnels du personnel. Le dernier administrateur actif ne peut pas être supprimé ou rétrogradé. Les changements de rôle ou désactivations invalident les sessions concernées.
+Il n'existe que deux rôles métier. Les habilitations sensibles restent des permissions explicites du bibliothécaire et sont vérifiées côté serveur. L'auto-désactivation est interdite ; le dernier bibliothécaire actif habilité à gérer les comptes est protégé. Une désactivation invalide les sessions concernées. Aucune route HTTP ne promeut un étudiant ni ne modifie les permissions.
 
 ## Authentification réelle et mode de démonstration
 
@@ -44,9 +45,9 @@ Ces protections doivent être revalidées dans votre configuration HTTPS/reverse
 
 ## Audit et corrections
 
-Les modifications du catalogue, transitions de circulation, décisions d'acquisition, attributions de rôle, changements de paramètres et opérations sur sanctions créent des événements d'audit. `StatusHistory` conserve les états de circulation. Une correction ne supprime pas l'événement d'origine ; le motif et l'acteur restent disponibles.
+Les modifications du catalogue, transitions de circulation, décisions d'acquisition, provisionnements locaux, changements de paramètres et opérations sur sanctions créent des événements d'audit. `StatusHistory` conserve les états de circulation. Une correction ne supprime pas l'événement d'origine ; le motif et l'acteur restent disponibles.
 
-Une amende peut être enregistrée comme réglée au guichet. Cela ne correspond pas à un appel bancaire. ADMIN peut révoquer une sanction active avec motif ; cette fonctionnalité permet la correction administrative, sans prétendre constituer un portail juridique complet de contestation.
+Une amende peut être enregistrée comme réglée au guichet. Cela ne correspond pas à un appel bancaire. Un bibliothécaire doté de `canRevokeSanctions` peut révoquer une sanction active avec motif ; cette correction exceptionnelle est auditée, sans prétendre constituer un portail juridique complet de contestation.
 
 ## Données minimales
 

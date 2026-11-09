@@ -33,7 +33,7 @@ Concurrence : verrou Student d'abord, puis verrou Copy, puis écritures. La rech
 
 ## Guichet et prêt
 
-La remise requiert un acteur LIBRARIAN/ADMIN, une réservation ACTIVE non expirée, le code de l'exemplaire attendu et l'identifiant de l'étudiant présenté. Le personnel vérifie visuellement la carte physique. Les contrôles d'état et de sanctions sont revalidés au moment de la remise.
+La remise requiert un acteur LIBRARIAN, une réservation ACTIVE non expirée, le code de l'exemplaire attendu et l'identifiant de l'étudiant présenté. Le personnel vérifie visuellement la carte physique. Les contrôles d'état et de sanctions sont revalidés au moment de la remise.
 
 La transaction passe Reservation à COLLECTED, crée Loan ACTIVE avec `handedAt = maintenant` et `dueAt = handedAt + loanDays`, et passe Copy à LOANED. Il ne peut exister qu'un Loan non clos par Copy et qu'un Loan par Reservation. Deux confirmations de remise ne créent pas deux prêts.
 
@@ -60,11 +60,11 @@ Au retour, Loan passe CLOSED ; Copy passe AVAILABLE si `condition = GOOD`, sinon
 | Détérioration légère | Suspension de 15 jours. |
 | Détérioration grave | Amende de 50 % du prix ; exemplaire retiré. |
 
-Les durées et limites d’emprunt sont paramétrables par ADMIN. Le seuil de trois retards et le calcul des montants constituent les règles métier explicites de cette version ; leur modification exige une évolution du service et de ses tests. Le système distingue un compteur de cycle et l’historique des suspensions. Pendant la suspension pour retard, les autres retards de prêts déjà actifs sont historisés avec avertissement, sans démarrer un nouveau cycle ni appliquer une deuxième suspension. À l’échéance — ou après révocation administrative de cette suspension — le job remet le compteur à zéro de manière idempotente. Le traitement d’un nouveau retard effectue aussi ce rattrapage si le job n’a pas encore tourné. Le traitement d’une infraction produit un événement unique et une notification dédupliquée.
+Les durées et limites d’emprunt sont paramétrables par un LIBRARIAN doté de `canManageSettings`. Le seuil de trois retards et le calcul des montants constituent les règles métier explicites de cette version ; leur modification exige une évolution du service et de ses tests. Le système distingue un compteur de cycle et l’historique des suspensions. Pendant la suspension pour retard, les autres retards de prêts déjà actifs sont historisés avec avertissement, sans démarrer un nouveau cycle ni appliquer une deuxième suspension. À l’échéance — ou après révocation exceptionnelle de cette suspension — le job remet le compteur à zéro de manière idempotente. Le traitement d’un nouveau retard effectue aussi ce rattrapage si le job n’a pas encore tourné. Le traitement d’une infraction produit un événement unique et une notification dédupliquée.
 
 Les cycles et débuts de sanction sont calculés à la date du constat serveur (job ou retour), et non rétroactivement à la seule date d’échéance. Après une interruption du serveur, le rattrapage historise les événements au moment de leur traitement. Cette convention de démonstration est explicite et doit être validée avec l’établissement.
 
-Les montants sont arrondis au centime. Un règlement enregistré par le personnel passe une amende ACTIVE à PAID et crée une entrée d'audit. Il ne simule pas un paiement bancaire. Une correction exceptionnelle ADMIN exige un motif, conserve la sanction et la passe à REVOKED ; les événements d'origine restent auditables. Une correction ne doit jamais supprimer silencieusement l'historique.
+Les montants sont arrondis au centime. Un règlement enregistré par le personnel passe une amende ACTIVE à PAID et crée une entrée d'audit. Il ne simule pas un paiement bancaire. Une correction exceptionnelle exige `canRevokeSanctions` et un motif, conserve la sanction et la passe à REVOKED ; les événements d'origine restent auditables. Une correction ne doit jamais supprimer silencieusement l'historique.
 
 ## Propositions et recommandations
 

@@ -1,21 +1,20 @@
 @startuml
+!pragma layout smetana
 left to right direction
 skinparam packageStyle rectangle
 title Bibliothèque universitaire — Cas d'utilisation
 actor Visiteur as Visitor
 actor Étudiant as Student
 actor Bibliothécaire as Librarian
-actor Administrateur as Admin
 actor "Google OIDC" as Google
 actor "Fournisseur universitaire\n(démo ou officiel à configurer)" as University
 Student --|> Visitor
 Librarian --|> Visitor
-Admin --|> Librarian
 rectangle "Plateforme de bibliothèque" {
  usecase "Consulter / rechercher\nle catalogue" as Catalog
  usecase "Se connecter avec Google" as Login
  usecase "Vérifier l'identité\nà la première inscription" as Verify
- usecase "Vérifier physiquement une identité\n(revue administrative)" as ManualReview
+ usecase "Vérifier physiquement une identité\n(habilitation requise)" as ManualReview
  usecase "Capturer et lire\nla carte par OCR" as OCR
  usecase "Emprunter un ouvrage" as Borrow
  usecase "Demander automatiquement\nun exemplaire disponible" as Request
@@ -27,7 +26,7 @@ rectangle "Plateforme de bibliothèque" {
  usecase "Gérer livres et exemplaires" as Inventory
  usecase "Proposer une acquisition" as Propose
  usecase "Étudier une proposition" as Review
- usecase "Gérer comptes, rôles et règles" as Settings
+ usecase "Gérer comptes et paramètres\n(habilitation requise)" as Settings
  usecase "Consulter le journal d'audit" as Audit
 }
 Visitor --> Catalog
@@ -49,9 +48,9 @@ Librarian --> Return
 Sanction ..> Return : <<extend>>\n[retard ou incident]
 Librarian --> Review
 Student --> ManualReview : solliciter
-Admin --> ManualReview : confirmer
-Admin --> Settings
-Admin --> Audit
+Librarian --> ManualReview : confirmer
+Librarian --> Settings
+Librarian --> Audit
 note bottom of Reserve
 Acceptation ou refus automatique côté serveur.
 Une réservation n'est pas encore un emprunt.
@@ -59,5 +58,9 @@ end note
 note bottom of Verify
 OCR ≠ preuve d'identité.
 Aucun fournisseur officiel n'est fourni.
+end note
+note bottom of Settings
+Le rôle reste LIBRARIAN.
+Les actions sensibles exigent une permission explicite.
 end note
 @enduml

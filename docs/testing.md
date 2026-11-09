@@ -26,18 +26,18 @@ npm run build
 | Domaine | Vérifications prévues/réalisées par les tests sources |
 | --- | --- |
 | Authentification | Claims, issuer/audience/expiration/email/nonce, domaine exact, vrai rejet d'un jeton malformé par la bibliothèque Google, cookies/session/CSRF, expiration, déconnexion et RBAC. |
-| Vérification | Fournisseur officiel absent → 503 sans activation, fournisseur fictif isolé des comptes Google réels, revue physique administrative auditée, unicité du numéro. |
+| Vérification | Fournisseur officiel absent → 503 sans activation, fournisseur fictif isolé des comptes Google réels, revue physique habilitée et auditée, unicité du numéro. |
 | Circulation | Demande disponible/indisponible, étudiant non vérifié/suspendu, quota, concurrence d'étudiants pour un exemplaire et d'un étudiant sur plusieurs ouvrages, remise et retour réels. |
 | Base | Index partiels et garde intertables, cohérence des états à COMMIT, intégrité face à écritures directes invalides. |
 | Échéances | Expiration réservation, rappel dédupliqué, retard constaté une fois, remise hors délai refusée. |
 | Sanctions | Cycles de retards, suspension, deuxième cycle/bannissement, perte selon seuil de prix, détériorations et calcul Decimal. |
-| Gestion | Catalogue, propositions, rôles, paramètres et opérations administratives selon les suites présentes. |
+| Gestion | Catalogue, propositions, rôles, paramètres et opérations sensibles protégées par permissions explicites. |
 
 Un test de validation de claims avec des données construites ne prouve pas qu'une signature Google valide a été reçue. Le jeton valide d'un utilisateur réel n'a pas été fourni. La vérification cryptographique réelle est appelée par le code ; son parcours positif dépend de votre configuration Google.
 
 ## Résultats observés
 
-Dernier lancement complet communiqué par l’agent principal : `npm test` — **74 tests réussis sur 74**, en exécution séquentielle sur PostgreSQL réel (5,37 secondes).
+Dernier lancement complet : `npm test` — **74 tests réussis sur 74**, en exécution séquentielle sur PostgreSQL réel isolé (24,29 secondes).
 
 | Suite | Résultat |
 | --- | --- |
@@ -46,7 +46,7 @@ Dernier lancement complet communiqué par l’agent principal : `npm test` — *
 | `backend/src/tests/http.test.ts` | 12 / 12 réussis |
 | `backend/src/tests/management.test.ts` | 5 / 5 réussis |
 
-`npm run typecheck` a réussi pour le backend et le frontend. Les builds finaux `npm run build -w backend` et `npm run build -w frontend` ont réussi, compilation TypeScript incluse. Les quatre SVG UML ont été régénérés avec PlantUML 1.2026.2 / OpenJDK 21 / Graphviz ; code de sortie 0 et XML valides.
+`npm run typecheck` a réussi pour le backend et le frontend. Les builds finaux `npm run build -w backend` et `npm run build -w frontend` ont réussi, compilation TypeScript incluse. Les quatre SVG UML ont été régénérés avec PlantUML 1.2026.8 et son moteur Smetana ; code de sortie 0 et XML valides.
 
 Un contrôle HTTP réel du serveur Express construit a également réussi : PostgreSQL connecté, 16 ouvrages, index frontend et assets JavaScript servis, route SPA `/gestion/guichet` et image `/demo-card.png` accessibles (200). Il ne constitue pas un rendu dans un navigateur. La réinitialisation/migration/peuplement de la base fictive a été exécutée avec succès : 16 livres, 5 comptes.
 
@@ -66,20 +66,16 @@ Ce résultat prouve une reconnaissance réelle sur **cette image synthétique**.
 
 ## Scénario E2E navigateur
 
-Les sources Playwright décrivent le parcours : connexion démo étudiant → recherche/catalogue → demande acceptée → connexion personnel → remise → prêt actif → retour → disponibilité. Une démo de rôle ne constitue pas un test E2E d'une connexion Google réelle.
+Les scénarios Playwright couvrent : inscription fictive par import OCR puis reconnexion sans scan, circulation complète étudiant/bibliothécaire, refus de permission caméra et absence de caméra. Une démo de rôle ne constitue pas un test E2E d'une connexion Google réelle.
 
 Pour préparer Playwright sur votre ordinateur :
 
 ```powershell
 npx playwright install chromium
-$env:E2E_START_SERVERS = "true"
-$env:TEST_BASE_URL = "http://localhost:5173"
-npm run test:e2e
+npm run test:e2e:isolated
 ```
 
-Arrêter les serveurs de développement qui occupent déjà les ports 3001 et 5173. `scripts/start-e2e.mjs` migre et peuple la base TEST_DATABASE_URL puis lance frontend/backend en remplaçant DATABASE_URL par cette base dédiée. Le lanceur refuse une base principale, et Playwright refuse une cible distante. Le scénario crée puis archive son propre ouvrage et conserve les historiques ; il ne retourne pas les prêts préexistants. Les trois tests Playwright ont été découverts, mais aucun navigateur n’a été lancé. Le guide détaillé est [`frontend/e2e/README.md`](../frontend/e2e/README.md).
-
-**Limite de cette session** : l’environnement géré ne fournit pas `cua_repl.js`, l’outil navigateur requis par son flux de prévisualisation. La compétence [Sites — SKILL.md](skill://plugin_connector_1p_689987207de08191979cf68eca2941c6/sites/SKILL.md) impose : « If cua_repl.js is unavailable, skip browser QA: do not start a preview server, install a browser, or improvise another browser-control path. » Les scénarios navigateur sont donc fournis sans prétendre les avoir exécutés. Les tests API et compilations ne prouvent pas à eux seuls le rendu responsive ou l’accessibilité matérielle.
+La commande isolée utilise les ports 5174/3002 et peut donc cohabiter avec les serveurs de développement 5173/3001. `scripts/start-e2e.mjs` migre et peuple uniquement `TEST_DATABASE_URL`, remplace `DATABASE_URL` pour les deux processus de test et remet seulement `demo:onboarding` en état initial. Le lanceur refuse une base principale et Playwright refuse une cible distante. Le scénario de circulation crée puis archive son propre ouvrage et conserve les historiques ; il ne retourne pas les prêts préexistants. Résultat observé dans Chromium : **4/4 réussis en 48,6 secondes**. Le guide détaillé est [`frontend/e2e/README.md`](../frontend/e2e/README.md).
 
 ## Matrice manuelle à exécuter sur les appareils cibles
 

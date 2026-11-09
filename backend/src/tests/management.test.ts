@@ -8,15 +8,15 @@ import { hashToken,opaqueToken } from '../middleware/auth.js';
 
 const app=createApp();const origin=process.env.APP_ORIGIN||'http://localhost:5173';
 const prefix=`mgmt-${randomUUID()}`;const users:string[]=[];const books:string[]=[];
-async function principal(role:Role){
- const user=await prisma.user.create({data:{name:`Gestion fictive ${role}`,email:`${randomUUID()}@usmba.ac.ma`,googleSub:`${prefix}:${randomUUID()}`,role,...(role==='STUDENT'?{student:{create:{studentNumber:`T${randomUUID().replaceAll('-','').slice(0,12)}`,verified:true}}}:{})},include:{student:true}});users.push(user.id);
+async function principal(role:Role,sensitive=false){
+ const user=await prisma.user.create({data:{name:`Gestion fictive ${role}`,email:`${randomUUID()}@usmba.ac.ma`,googleSub:`${prefix}:${randomUUID()}`,role,canManageUsers:sensitive,canManageSettings:sensitive,canViewAudit:sensitive,canRevokeSanctions:sensitive,...(role==='STUDENT'?{student:{create:{studentNumber:`T${randomUUID().replaceAll('-','').slice(0,12)}`,verified:true}}}:{})},include:{student:true}});users.push(user.id);
  const raw=opaqueToken(),csrf=opaqueToken();await prisma.session.create({data:{userId:user.id,tokenHash:hashToken(raw),csrfToken:csrf,expiresAt:new Date(Date.now()+3600000)}});
  return {user,cookie:`library_session=${raw}`,csrf};
 }
-type Principal=Awaited<ReturnType<typeof principal>>;let staff:Principal,student:Principal,other:Principal,admin:Principal;
+type Principal=Awaited<ReturnType<typeof principal>>;let staff:Principal,student:Principal,other:Principal,manager:Principal;
 function mutation(method:'post'|'patch',path:string,p:Principal,body:unknown){return request(app)[method](path).set('Cookie',p.cookie).set('Origin',origin).set('X-CSRF-Token',p.csrf).send(body);}
 async function createBook(){const result=await mutation('post','/api/staff/books',staff,{title:`${prefix} livre`,authors:[`${prefix} auteur`],categories:[`${prefix} catégorie`],priceDh:120}).expect(201);books.push(result.body.id);return result.body;}
-beforeAll(async()=>{staff=await principal('LIBRARIAN');student=await principal('STUDENT');other=await principal('STUDENT');admin=await principal('ADMIN');});
+beforeAll(async()=>{staff=await principal('LIBRARIAN');student=await principal('STUDENT');other=await principal('STUDENT');manager=await principal('LIBRARIAN',true);});
 afterAll(async()=>{
  const profiles=await prisma.student.findMany({where:{userId:{in:users}},select:{id:true}});const studentIds=profiles.map(s=>s.id);
  await prisma.$transaction([
@@ -58,23 +58,28 @@ describe('Catalogue, inventaire et propositions persistantes',()=>{
   const acquired=await mutation('patch',`/api/staff/acquisitions/${id}`,staff,{status:'ACQUIRED',bookId:b.id}).expect(200);expect(acquired.body.bookId).toBe(b.id);
  });
 });
-describe('Administration et corrections traçables',()=>{
- it('enregistre un règlement au guichet une seule fois et réserve les corrections à l’administrateur',async()=>{
+describe('Gestion sensible et corrections traçables',()=>{
+ it('enregistre un règlement au guichet une seule fois et réserve les corrections au bibliothécaire habilité',async()=>{
   const sanction=await prisma.sanction.create({data:{studentId:student.user.student!.id,type:'FINE',amountDh:90,reason:'Perte fictive'}});
   await mutation('post',`/api/staff/sanctions/${sanction.id}/settle`,staff,{reason:'Règlement reçu au guichet'}).expect(200);
   await mutation('post',`/api/staff/sanctions/${sanction.id}/settle`,staff,{reason:'Deuxième enregistrement'}).expect(409);
   const suspension=await prisma.sanction.create({data:{studentId:student.user.student!.id,type:'SUSPENSION',reason:'À réexaminer',endsAt:new Date(Date.now()+86400000)}});
-  await mutation('post',`/api/admin/sanctions/${suspension.id}/revoke`,staff,{reason:'Contestation validée'}).expect(403);
-  await mutation('post',`/api/admin/sanctions/${suspension.id}/revoke`,admin,{reason:'Contestation validée après contrôle'}).expect(200);
+  await mutation('post',`/api/staff/sanctions/${suspension.id}/revoke`,staff,{reason:'Contestation validée'}).expect(403);
+  await mutation('post',`/api/staff/sanctions/${suspension.id}/revoke`,manager,{reason:'Contestation validée après contrôle'}).expect(200);
   expect(await prisma.auditLog.count({where:{entityId:suspension.id,action:'SANCTION_REVOKED'}})).toBe(1);
  });
- it('valide les paramètres, révoque les sessions après changement de rôle et protège le dernier administrateur',async()=>{
-  const settings=await request(app).get('/api/admin/settings').set('Cookie',admin.cookie).expect(200);
-  await mutation('patch','/api/admin/settings',admin,{maxLoans:0,loanDays:14,pickupHours:48,lateSuspensionDays:7,minorDamageDays:15}).expect(400);
-  await mutation('patch','/api/admin/settings',staff,{maxLoans:3,loanDays:14,pickupHours:48,lateSuspensionDays:7,minorDamageDays:15}).expect(403);
-  await mutation('patch','/api/admin/settings',admin,{maxLoans:settings.body.maxLoans,loanDays:settings.body.loanDays,pickupHours:settings.body.pickupHours,lateSuspensionDays:settings.body.lateSuspensionDays,minorDamageDays:settings.body.minorDamageDays}).expect(200);
-  await mutation('patch',`/api/admin/users/${other.user.id}`,admin,{role:'LIBRARIAN'}).expect(200);
-  await request(app).get('/api/staff/dashboard').set('Cookie',other.cookie).expect(401);
-  await mutation('patch',`/api/admin/users/${admin.user.id}`,admin,{active:false}).expect(409);
+ it('valide les paramètres, interdit toute promotion HTTP et protège le compte gestionnaire courant',async()=>{
+  const settings=await request(app).get('/api/staff/settings').set('Cookie',manager.cookie).expect(200);
+  await request(app).get('/api/staff/settings').set('Cookie',staff.cookie).expect(403);
+  await request(app).get('/api/staff/audit').set('Cookie',staff.cookie).expect(403);
+  await request(app).get('/api/staff/audit').set('Cookie',manager.cookie).expect(200);
+  await mutation('patch','/api/staff/settings',manager,{maxLoans:0,loanDays:14,pickupHours:48,lateSuspensionDays:7,minorDamageDays:15}).expect(400);
+  await mutation('patch','/api/staff/settings',staff,{maxLoans:3,loanDays:14,pickupHours:48,lateSuspensionDays:7,minorDamageDays:15}).expect(403);
+  await mutation('patch','/api/staff/settings',manager,{maxLoans:settings.body.maxLoans,loanDays:settings.body.loanDays,pickupHours:settings.body.pickupHours,lateSuspensionDays:settings.body.lateSuspensionDays,minorDamageDays:settings.body.minorDamageDays}).expect(200);
+  await mutation('patch',`/api/staff/users/${other.user.id}`,manager,{role:'LIBRARIAN'}).expect(400);
+  expect((await prisma.user.findUniqueOrThrow({where:{id:other.user.id}})).role).toBe('STUDENT');
+  await mutation('patch',`/api/staff/users/${other.user.id}`,manager,{active:false}).expect(200);
+  await request(app).get('/api/auth/me').set('Cookie',other.cookie).expect(200).expect(response=>expect(response.body.user).toBeNull());
+  await mutation('patch',`/api/staff/users/${manager.user.id}`,manager,{active:false}).expect(409);
  });
 });

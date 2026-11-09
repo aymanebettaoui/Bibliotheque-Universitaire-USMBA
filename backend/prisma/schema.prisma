@@ -10,7 +10,6 @@ datasource db {
 enum Role { 
   STUDENT
   LIBRARIAN
-  ADMIN
 }
 enum CopyStatus {
   AVAILABLE
@@ -73,6 +72,10 @@ model User {
   name                  String
   role                  Role @default(STUDENT)
   active                Boolean @default(true)
+  canManageUsers        Boolean @default(false)
+  canManageSettings     Boolean @default(false)
+  canViewAudit          Boolean @default(false)
+  canRevokeSanctions    Boolean @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   student               Student?

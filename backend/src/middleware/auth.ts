@@ -6,6 +6,7 @@ import { HttpError, asyncHandler } from './error.js';
 
 export type AuthUser = Prisma.UserGetPayload<{ include: { student: true } }>;
 export interface Principal { user: AuthUser; sessionId: string; csrfToken: string }
+export type StaffPermission = 'canManageUsers' | 'canManageSettings' | 'canViewAudit' | 'canRevokeSanctions';
 declare global {
   namespace Express {
     interface Request { auth?: Principal; user?: AuthUser }
@@ -41,6 +42,12 @@ export function clearAuthCookie(res: Response, name: string) {
 export const publicUser = (user: AuthUser) => ({
   id: user.id, name: user.name, email: user.email, role: user.role, active: user.active,
   student: user.student ? { id: user.student.id, studentNumber: user.student.studentNumber, verified: user.student.verified } : null,
+  permissions: {
+    manageUsers: user.role === 'LIBRARIAN' && user.canManageUsers,
+    manageSettings: user.role === 'LIBRARIAN' && user.canManageSettings,
+    viewAudit: user.role === 'LIBRARIAN' && user.canViewAudit,
+    revokeSanctions: user.role === 'LIBRARIAN' && user.canRevokeSanctions,
+  },
 });
 
 export const loadSession = asyncHandler(async (req, res, next) => {
@@ -101,6 +108,14 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
 export const requireRoles = (...roles: Role[]): RequestHandler => (req, _res, next) => {
   if (!req.auth) { next(new HttpError(401, 'AUTH_REQUIRED', 'Connectez-vous pour continuer.')); return; }
   if (!roles.includes(req.auth.user.role)) { next(new HttpError(403, 'FORBIDDEN', 'Votre rôle ne permet pas cette opération.')); return; }
+  next();
+};
+export const requirePermission = (permission: StaffPermission): RequestHandler => (req, _res, next) => {
+  if (!req.auth) { next(new HttpError(401, 'AUTH_REQUIRED', 'Connectez-vous pour continuer.')); return; }
+  if (req.auth.user.role !== 'LIBRARIAN' || !req.auth.user[permission]) {
+    next(new HttpError(403, 'PERMISSION_REQUIRED', 'Cette opération sensible nécessite une habilitation bibliothécaire spécifique.'));
+    return;
+  }
   next();
 };
 

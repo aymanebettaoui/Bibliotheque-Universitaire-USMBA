@@ -34,7 +34,7 @@ export async function proposeAcquisition(userId:string,input:{title:string;autho
     const existing=await tx.book.findFirst({where:{archived:false,title:{equals:input.title,mode:'insensitive'}}});
     if(existing) throw new HttpError(409,'BOOK_EXISTS','Ce titre existe déjà dans le catalogue.');
     const item=await tx.acquisition.create({data:{studentId:student.id,...input}});
-    const staff=await tx.user.findMany({where:{role:{in:['LIBRARIAN','ADMIN']},active:true},select:{id:true}});
+    const staff=await tx.user.findMany({where:{role:'LIBRARIAN',active:true},select:{id:true}});
     if(staff.length) await tx.notification.createMany({data:staff.map(s=>({userId:s.id,type:'ACQUISITION_SUBMITTED',content:`Nouvelle proposition : ${item.title}`,dedupeKey:`acquisition:${item.id}:${s.id}`}))});
     await tx.auditLog.create({data:{userId,action:'ACQUISITION_PROPOSED',entity:'Acquisition',entityId:item.id}});
     return item;

@@ -15,7 +15,7 @@ coversRouter.use('/covers', express.static(coverDirectory, {
   dotfiles: 'deny', index: false, maxAge: '1d',
   setHeaders(res) { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'"); }
 }));
-coversRouter.post('/staff/books/:id/cover', requireAuth, requireRoles('LIBRARIAN', 'ADMIN'),
+coversRouter.post('/staff/books/:id/cover', requireAuth, requireRoles('LIBRARIAN'),
   express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '2mb' }),
   asyncRoute(async (req, res) => {
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: { code: 'INVALID_ID', message: 'Identifiant d’ouvrage invalide.' } });

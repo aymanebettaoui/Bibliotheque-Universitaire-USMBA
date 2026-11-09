@@ -34,7 +34,7 @@ Les jointures Book–Author et Book–Category ont une PK composite sur les deux
 
 | Type | Valeurs |
 | --- | --- |
-| Role | STUDENT, LIBRARIAN, ADMIN |
+| Role | STUDENT, LIBRARIAN |
 | CopyStatus | AVAILABLE, RESERVED, LOANED, WITHDRAWN |
 | PhysicalCondition | GOOD, DAMAGED, LOST |
 | RequestStatus | PENDING, ACCEPTED, REFUSED, EXPIRED, CANCELLED |

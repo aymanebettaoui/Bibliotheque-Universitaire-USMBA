@@ -1,6 +1,6 @@
 # UniBiblio — Bibliothèque universitaire
 
-Application de gestion de livres **physiques** : catalogue public, sessions Google OIDC, inscription par caméra/OCR, demandes automatiques, réservations, guichet de remise/retour, sanctions, propositions d'acquisition, notifications et administration.
+Application de gestion de livres **physiques** : catalogue public, sessions Google OIDC, inscription par caméra/OCR, demandes automatiques, réservations, guichet de remise/retour, sanctions, propositions d'acquisition, notifications et gestion bibliothécaire.
 
 Le projet est un monorepo React/TypeScript/Vite et Express/Prisma/PostgreSQL. Les données et mutations passent réellement par le backend et la base PostgreSQL ; le frontend ne contient pas de stockage métier de remplacement. Les sources UML et leurs SVG se trouvent dans [`docs/uml`](docs/uml/README.md).
 
@@ -11,7 +11,7 @@ Le projet est un monorepo React/TypeScript/Vite et Express/Prisma/PostgreSQL. Le
 - **Caméra/OCR** : une caméra réelle et une permission navigateur sont nécessaires. La reconnaissance peut échouer et ne vaut pas preuve d'identité. Le parcours matériel doit être vérifié sur vos appareils.
 - **Tests et couverture** : consulter le [bilan de validation](docs/testing.md) et le [bilan par phase](docs/phase-status.md). Un fichier de test fourni n'est pas une preuve d'exécution.
 
-Validation effectuée : **74 tests serveur réussis sur PostgreSQL réel**, compilation/build backend et frontend réussis, OCR Tesseract réellement exécuté sur une carte synthétique. Les tests navigateur, la caméra matérielle et une connexion Google réelle ne sont pas attestés ; voir le bilan détaillé.
+Validation effectuée : **74 tests serveur réussis sur PostgreSQL réel**, compilation/build backend et frontend réussis, OCR Tesseract réellement exécuté sur la carte fictive, et **4 scénarios Playwright réussis dans Chromium** sur `library_test`. La caméra matérielle et une connexion Google réelle ne sont pas attestées ; voir le bilan détaillé.
 
 Il n'y a ni livres numériques téléchargeables, ni passerelle bancaire, ni emails envoyés. Les notifications sont internes et le règlement d'une pénalité est enregistré au guichet.
 
@@ -65,7 +65,7 @@ Les origines doivent rester cohérentes : si vous remplacez `localhost` par une 
 
 ### 4. Essayer les données fictives
 
-Avec `DEMO_MODE=true` et `NODE_ENV=development`, la page de connexion donne accès aux rôles de démonstration étudiant, bibliothécaire et administrateur. La bannière rappelle le caractère fictif de l'environnement. Ce mécanisme est interdit en production et ne permet pas de transformer un vrai compte Google en personnel.
+Avec `DEMO_MODE=true` et `NODE_ENV=development`, la page de connexion donne accès aux deux rôles de démonstration étudiant et bibliothécaire. La bannière rappelle le caractère fictif de l'environnement. Ce mécanisme est interdit en production et ne permet pas de transformer un vrai compte Google en personnel.
 
 Parcours conseillé :
 
@@ -75,7 +75,7 @@ Parcours conseillé :
 4. Revenir comme étudiant : le prêt est actif avec sa date de retour.
 5. Revenir comme bibliothécaire : enregistrer le retour et l'état physique. Le catalogue se met à jour ; le prêt clos reste dans l'historique.
 
-Les étudiants usuels du seed sont déjà vérifiés pour faciliter les emprunts. Le bouton démo **« Tester l’inscription par scan »** ouvre un profil fictif distinct, non vérifié : Samir Exemple. Télécharger la carte fictive proposée dans le parcours (également disponible dans `tests/fixtures/demo-student-card.png`), portant **R202400003**, puis l’importer ou la photographier et lancer la lecture OCR et la vérification. Une fois ce profil vérifié, ses connexions suivantes ne demandent plus de scan ; `npm run db:reset` permet de recommencer la démonstration sur la base fictive.
+Les étudiants usuels du seed sont déjà vérifiés pour faciliter les emprunts. Le bouton démo **« Tester l’inscription par scan »** ouvre un profil fictif distinct : Samir Exemple. Pour un parcours reproductible, lancer Playwright sur `library_test` : le lanceur remet uniquement la fixture `demo:onboarding` en état non vérifié, sans réinitialiser PostgreSQL ni toucher aux autres comptes. Importer `frontend/public/demo-card.png`, portant **R202400003**, puis lancer la lecture OCR et la vérification. Une fois ce profil vérifié, ses connexions suivantes ne demandent plus de scan.
 
 Le fonds présenté est un inventaire fictif de démonstration, pas l’inventaire officiel de l’université.
 
@@ -87,6 +87,7 @@ Les identifiants fictifs du fournisseur universitaire sont `R202400001`, `R20240
 npm run typecheck
 npm run build
 npm run test:ocr
+npm run test:e2e:isolated
 ```
 
 Pour préparer la base dédiée et lancer les tests :
@@ -102,6 +103,8 @@ La création de `library_test` n’est nécessaire qu’une fois. Configurer `TE
 Les tests d'intégration utilisent une base distincte désignée par `TEST_DATABASE_URL`. La configuration refuse d'utiliser la base principale. Utiliser exclusivement une base fictive dédiée ; ne jamais lancer ces commandes contre une base d'exploitation. Voir [les instructions de tests](docs/testing.md).
 
 `npm run test:ocr` exécute réellement Tesseract.js sur une carte synthétique, sans données personnelles. Le premier lancement peut télécharger les données de langue ; ce test ne remplace pas un essai de caméra matérielle.
+
+`npm run test:e2e:isolated` utilise les ports 5174/3002 pour ne pas perturber les serveurs de développement, force la base dédiée `_test`, remet uniquement `demo:onboarding` en état initial, puis exécute les quatre scénarios Chromium.
 
 Le build produit `backend/dist` et `frontend/dist`. Pour un déploiement réel, il faut un serveur Node, PostgreSQL, HTTPS et un reverse proxy servant le frontend et acheminant `/api` vers Express. Une page statique seule ne remplace pas ce backend. Les commandes et points à valider figurent dans [la configuration](docs/configuration.md).
 
@@ -123,7 +126,7 @@ npm run db:reset
 
 ## Configuration Google et personnel
 
-Le guide [configuration](docs/configuration.md) décrit le client Google, les origines autorisées, le connecteur universitaire et l'OCR. Le personnel doit être préattribué par une procédure administrative ; une inscription publique ne peut pas obtenir LIBRARIAN ou ADMIN. La commande `npm run provision:staff -- --email … --name … --role ADMIN --confirm-local-admin-access` et ses arguments sont détaillés dans ce guide.
+Le guide [configuration](docs/configuration.md) décrit le client Google, les origines autorisées, le connecteur universitaire et l'OCR. Le personnel doit être préattribué par une procédure locale sécurisée ; une inscription publique ne peut obtenir que STUDENT. La commande `npm run provision:staff -- --email … --name … --confirm-local-server-access` crée un bibliothécaire ; l'option `--grant-sensitive-management` accorde explicitement les habilitations renforcées.
 
 En production, `DEMO_MODE=false`, `NODE_ENV=production`, `APP_ORIGIN=https://votre-domaine` et `GOOGLE_CLIENT_ID` valide sont obligatoires. Les paramètres ne sont pas des secrets frontend. Aucun secret ne doit être commité dans `.env` ni envoyé dans un ticket ou journal.
 

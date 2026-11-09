@@ -8,8 +8,8 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) {
   throw new Error('Les tests de démonstration Playwright sont limités à un serveur local.');
 }
 const startServers = process.env.E2E_START_SERVERS === 'true';
-if (startServers && (base.port !== '5173' || base.protocol !== 'http:')) {
-  throw new Error('Le démarrage automatique utilise http://localhost:5173. Pour une autre adresse locale, lancez un serveur de TEST puis utilisez E2E_USE_EXISTING_TEST_SERVER=true.');
+if (startServers && base.protocol !== 'http:') {
+  throw new Error('Le démarrage automatique E2E exige une origine HTTP locale dédiée.');
 }
 // An existing server must explicitly be identified as a test instance. The
 // automatic path always overrides DATABASE_URL with the dedicated _test DB.

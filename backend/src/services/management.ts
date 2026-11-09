@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma, AcquisitionStatus, Role, CopyStatus, PhysicalCondition } from '@prisma/client';
+import { Prisma, AcquisitionStatus, CopyStatus, PhysicalCondition } from '@prisma/client';
 import { prisma } from '../config/db.js';
 import { HttpError } from '../middleware/error.js';
 import { publicBookInclude, serializeBook } from '../repositories/catalogue.js';
@@ -74,27 +74,26 @@ export async function settleSanction(userId:string,id:string,reason:string,revok
     return result;
   });
 }
-export async function updateUser(actorId:string,id:string,input:{role?:Role;active?:boolean}) {
+export async function updateUserActivation(actorId:string,id:string,active:boolean) {
   return prisma.$transaction(async tx=>{
-    await tx.$queryRaw`SELECT id FROM "User" WHERE role='ADMIN' ORDER BY id FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id=${id}::uuid FOR UPDATE`;
     const user=await tx.user.findUnique({where:{id}});
     if(!user)throw new HttpError(404,'USER_NOT_FOUND','Utilisateur introuvable.');
-    if(user.role==='ADMIN' && (input.role && input.role!=='ADMIN' || input.active===false)) {
-      const others=await tx.user.count({where:{role:'ADMIN',active:true,id:{not:id}}});
-      if(!others)throw new HttpError(409,'LAST_ADMIN','Le dernier administrateur actif doit être conservé.');
+    if(id===actorId && !active)throw new HttpError(409,'SELF_DEACTIVATION','Un autre responsable habilité doit désactiver votre compte.');
+    if(user.role==='LIBRARIAN' && user.canManageUsers && !active) {
+      const others=await tx.user.count({where:{role:'LIBRARIAN',active:true,canManageUsers:true,id:{not:id}}});
+      if(!others)throw new HttpError(409,'LAST_USER_MANAGER','Le dernier bibliothécaire habilité à gérer les comptes doit rester actif.');
     }
-    if(id===actorId && input.active===false)throw new HttpError(409,'SELF_DEACTIVATION','Un autre administrateur doit désactiver votre compte.');
-    const result=await tx.user.update({where:{id},data:input,select:{id:true,name:true,email:true,role:true,active:true,student:true}});
-    if(result.role==='STUDENT')await tx.student.upsert({where:{userId:id},create:{userId:id},update:{}});
-    if(input.active===false || input.role!==undefined)await tx.session.deleteMany({where:{userId:id}});
-    await audit(tx,actorId,'USER_UPDATED','User',id,{before:{role:user.role,active:user.active},after:input});
+    const result=await tx.user.update({where:{id},data:{active},select:{id:true,name:true,email:true,role:true,active:true,student:true,canManageUsers:true,canManageSettings:true,canViewAudit:true,canRevokeSanctions:true}});
+    if(!active)await tx.session.deleteMany({where:{userId:id}});
+    await audit(tx,actorId,'USER_ACCESS_UPDATED','User',id,{before:{role:user.role,active:user.active},after:{active}});
     return result;
   });
 }
 export async function staffDashboard() {
   const now=new Date();
-  const [books,copies,available,reserved,loaned,overdue,damaged,lost,recentRequests,acquisitions]=await prisma.$transaction([
-    prisma.book.count({where:{archived:false}}),prisma.copy.count(),prisma.copy.count({where:{status:'AVAILABLE',condition:'GOOD'}}),prisma.copy.count({where:{status:'RESERVED'}}),prisma.copy.count({where:{status:'LOANED'}}),prisma.loan.count({where:{status:{in:['ACTIVE','OVERDUE']},dueAt:{lt:now}}}),prisma.copy.count({where:{condition:'DAMAGED'}}),prisma.copy.count({where:{condition:'LOST'}}),prisma.borrowRequest.findMany({take:8,orderBy:{createdAt:'desc'},include:{book:{select:{id:true,title:true}},student:{include:{user:{select:{id:true,name:true,email:true}}}},reservation:{include:{copy:true}}}}),prisma.acquisition.count({where:{status:{in:['SUBMITTED','REVIEW']}}})
+  const [books,copies,available,reserved,loaned,activeLoans,overdue,pendingPickup,activeSanctions,damaged,lost,recentRequests,acquisitions,recentActivity]=await prisma.$transaction([
+    prisma.book.count({where:{archived:false}}),prisma.copy.count(),prisma.copy.count({where:{status:'AVAILABLE',condition:'GOOD'}}),prisma.copy.count({where:{status:'RESERVED'}}),prisma.copy.count({where:{status:'LOANED'}}),prisma.loan.count({where:{status:{in:['ACTIVE','OVERDUE']}}}),prisma.loan.count({where:{status:{in:['ACTIVE','OVERDUE']},dueAt:{lt:now}}}),prisma.reservation.count({where:{status:'ACTIVE',expiresAt:{gt:now}}}),prisma.sanction.count({where:{status:'ACTIVE',OR:[{endsAt:null},{endsAt:{gt:now}}]}}),prisma.copy.count({where:{condition:'DAMAGED'}}),prisma.copy.count({where:{condition:'LOST'}}),prisma.borrowRequest.findMany({take:8,orderBy:{createdAt:'desc'},include:{book:{select:{id:true,title:true}},student:{include:{user:{select:{id:true,name:true,email:true}}}},reservation:{include:{copy:true}}}}),prisma.acquisition.count({where:{status:{in:['SUBMITTED','REVIEW']}}}),prisma.auditLog.findMany({take:10,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true}}}})
   ]);
-  return {books,copies,available,reserved,loaned,overdue,damaged,lost,recentRequests,acquisitions};
+  return {books,copies,available,reserved,loaned,activeLoans,overdue,pendingPickup,activeSanctions,damaged,lost,recentRequests,acquisitions,recentActivity};
 }

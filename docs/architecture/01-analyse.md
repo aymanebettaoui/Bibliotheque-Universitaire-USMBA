@@ -6,7 +6,7 @@ Ce document décrit la cible de conception initiale du projet. La matrice de tra
 
 La bibliothèque gère des ouvrages physiques. Le catalogue public expose les références, auteurs, catégories et disponibilités ; il n'expose aucune identité d'emprunteur et aucun fichier de livre numérique. La fiche bibliographique et l'exemplaire sont deux objets distincts. Chaque exemplaire possède un code unique, un état physique et un statut de circulation.
 
-Trois rôles contrôlés côté serveur sont prévus. STUDENT gère exclusivement ses demandes, prêts, notifications et propositions. LIBRARIAN gère le catalogue, le guichet de remise/retour, les propositions et les règlements autorisés. ADMIN gère les rôles, comptes, paramètres et corrections exceptionnelles ; il peut également accéder aux fonctions du bibliothécaire. Le rôle d'un utilisateur n'est jamais accepté depuis un formulaire public.
+Deux rôles contrôlés côté serveur sont prévus. STUDENT gère exclusivement ses demandes, prêts, notifications et propositions. LIBRARIAN gère le catalogue, le guichet de remise/retour, les propositions et les règlements autorisés. Les comptes, paramètres, audits et corrections exceptionnelles exigent en plus une permission explicite du bibliothécaire. Le rôle d'un utilisateur n'est jamais accepté depuis un formulaire public.
 
 La demande d'emprunt ordinaire est acceptée ou refusée automatiquement. Une acceptation bloque un exemplaire jusqu'à une date limite, sans créer de prêt. Le prêt naît lors de la remise physique confirmée par le personnel après vérification de l'étudiant et du code exemplaire. Le retour clôture le prêt, conserve l'historique et remet l'exemplaire en circulation uniquement si son état le permet.
 

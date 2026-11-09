@@ -42,6 +42,11 @@ endif
 :Rechercher / scanner l'identifiant étudiant;
 :Vérifier identité et code de l'exemplaire;
 :Confirmer la remise physique;
+note right
+Rôle LIBRARIAN.
+Les opérations sensibles distinctes du guichet
+peuvent exiger une permission explicite.
+end note
 |Système|
 :Transaction : revalider réservation,
 échéance, sanctions et exemplaire;

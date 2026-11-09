@@ -20,6 +20,7 @@
     "db:reset": "node scripts/reset-demo-db.mjs",
     "test": "vitest run --config backend/vitest.config.ts",
     "test:e2e": "playwright test",
+    "test:e2e:isolated": "node scripts/run-e2e-isolated.mjs",
     "db:test:migrate": "node scripts/migrate-test-db.mjs",
     "provision:staff": "npm run provision:staff -w backend --",
     "test:ocr": "tsx scripts/verify-ocr.ts"

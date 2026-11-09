@@ -7,21 +7,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../config/db.js';
 import { createApp } from '../app.js';
 import { coverDirectory } from '../routes/covers.js';
+import { hashToken, opaqueToken } from '../middleware/auth.js';
 
 const origin = process.env.APP_ORIGIN || 'http://localhost:5173';
 const suffix = randomUUID();
 const userIds: string[] = [], bookIds: string[] = [], coverFiles: string[] = [];
 const app = createApp();
-const student = request.agent(app), librarian = request.agent(app), admin = request.agent(app);
-let studentId: string, studentUserId: string, staffId: string;
-let studentCsrf = '', staffCsrf = '', adminCsrf = '';
+const student = request.agent(app), librarian = request.agent(app), manager = request.agent(app);
+let studentId: string, staffId: string;
+const studentNumber = `H${suffix.replaceAll('-', '').slice(0, 9).toUpperCase()}`;
+let studentCsrf = '', staffCsrf = '', managerCsrf = '';
 let book: any, reservation: any, loan: any, settings: any;
 
-async function login(agent: ReturnType<typeof request.agent>, role: string) {
-  const me = await agent.get('/api/auth/me').expect(200);
-  const response = await agent.post('/api/auth/demo').set('Origin', origin).set('X-CSRF-Token', me.body.csrfToken).send({ role }).expect(200);
-  return response.body;
-}
 const mutate = (agent: ReturnType<typeof request.agent>, method: 'post'|'patch', url: string, csrf: string, body: unknown) =>
   agent[method](`/api${url}`).set('Origin', origin).set('X-CSRF-Token', csrf).send(body);
 
@@ -29,18 +26,27 @@ beforeAll(async () => {
   process.env.DEMO_MODE = 'true';
   await prisma.librarySettings.upsert({ where: { id: 'singleton' }, create: {}, update: {} });
   settings = await prisma.librarySettings.findUniqueOrThrow({ where: { id: 'singleton' } });
-  for (const role of ['STUDENT', 'LIBRARIAN', 'ADMIN'] as const) {
+  const fixtures = [
+    { key: 'student', role: 'STUDENT' as const, agent: student, sensitive: false },
+    { key: 'staff', role: 'LIBRARIAN' as const, agent: librarian, sensitive: false },
+    { key: 'manager', role: 'LIBRARIAN' as const, agent: manager, sensitive: true },
+  ];
+  for (const fixture of fixtures) {
+    const { role } = fixture;
     const id = randomUUID(); userIds.push(id);
-    const u = await prisma.user.create({ data: { id, googleSub: `demo:http-${suffix}-${role}`, email: `000-http-${suffix}-${role.toLowerCase()}@usmba.ac.ma`, name: `Compte HTTP fictif ${role}`, role,
-      ...(role === 'STUDENT' ? { student: { create: { verified: true, studentNumber: 'H123456789' } } } : {}) }, include: { student: true } });
-    if (role === 'STUDENT') { studentId = u.student!.id; studentUserId = u.id; }
-    if (role === 'LIBRARIAN') staffId = u.id;
+    const u = await prisma.user.create({ data: { id, googleSub: `http-test:${suffix}:${fixture.key}`, email: `000-http-${suffix}-${fixture.key}@usmba.ac.ma`, name: `Compte HTTP fictif ${fixture.key}`, role,
+      canManageUsers: fixture.sensitive, canManageSettings: fixture.sensitive, canViewAudit: fixture.sensitive, canRevokeSanctions: fixture.sensitive,
+      ...(role === 'STUDENT' ? { student: { create: { verified: true, studentNumber } } } : {}) }, include: { student: true } });
+    const raw = opaqueToken();
+    const csrf = opaqueToken();
+    await prisma.session.create({ data: { userId: u.id, tokenHash: hashToken(raw), csrfToken: csrf, expiresAt: new Date(Date.now() + 3_600_000) } });
+    fixture.agent.set('Cookie', `library_session=${raw}`);
+    if (role === 'STUDENT') { studentId = u.student!.id; studentCsrf = csrf; }
+    else if (fixture.sensitive) managerCsrf = csrf;
+    else { staffId = u.id; staffCsrf = csrf; }
   }
   const b = await prisma.book.create({ data: { title: `HTTP ${suffix}`, priceDh: '180.00', copies: { create: { barcode: `HTTP-${suffix}` } } }, include: { copies: true } });
   book = b; bookIds.push(b.id);
-  studentCsrf = (await login(student, 'STUDENT')).csrfToken;
-  staffCsrf = (await login(librarian, 'LIBRARIAN')).csrfToken;
-  adminCsrf = (await login(admin, 'ADMIN')).csrfToken;
 });
 
 afterAll(async () => {
@@ -74,8 +80,8 @@ describe('Parcours HTTP réel et autorisations', () => {
   it('protège le personnel, les données privées et les mutations CSRF', async () => {
     await request(app).get('/api/staff/loans').expect(401);
     await student.get('/api/staff/loans').expect(403);
-    await student.get('/api/admin/users').expect(403);
-    await librarian.get('/api/admin/settings').expect(403);
+    await student.get('/api/staff/users').expect(403);
+    await student.get('/api/staff/settings').expect(403);
     await student.post('/api/requests').set('Origin', origin).send({ bookId: book.id }).expect(403);
     await student.post('/api/requests').set('Origin', 'https://evil.example').set('X-CSRF-Token', studentCsrf).send({ bookId: book.id }).expect(403);
   });
@@ -93,12 +99,12 @@ describe('Parcours HTTP réel et autorisations', () => {
     const response = await mutate(student, 'post', '/requests', studentCsrf, { bookId: book.id }).expect(201);
     expect(response.body.status).toBe('ACCEPTED'); reservation = response.body.reservation;
     expect(await prisma.loan.count({ where: { studentId } })).toBe(0);
-    await mutate(student, 'post', `/staff/reservations/${reservation.id}/handover`, studentCsrf, { studentNumber: 'H123456789', barcode: book.copies[0].barcode }).expect(403);
+    await mutate(student, 'post', `/staff/reservations/${reservation.id}/handover`, studentCsrf, { studentNumber, barcode: book.copies[0].barcode }).expect(403);
   });
 
   it('vérifie la carte et l’exemplaire puis confirme la remise physique', async () => {
     await mutate(librarian, 'post', `/staff/reservations/${reservation.id}/handover`, staffCsrf, { studentNumber: 'H000000000', barcode: book.copies[0].barcode }).expect(409);
-    const response = await mutate(librarian, 'post', `/staff/reservations/${reservation.id}/handover`, staffCsrf, { studentNumber: 'H123456789', barcode: book.copies[0].barcode }).expect(201);
+    const response = await mutate(librarian, 'post', `/staff/reservations/${reservation.id}/handover`, staffCsrf, { studentNumber, barcode: book.copies[0].barcode }).expect(201);
     loan = response.body;
     const personal = await student.get('/api/me/loans').expect(200);
     expect(personal.body.items.some((item: any) => item.id === loan.id && item.status === 'ACTIVE')).toBe(true);
@@ -159,13 +165,13 @@ describe('Parcours HTTP réel et autorisations', () => {
     await mutate(student, 'post', '/acquisitions', studentCsrf, { ...input, title: 'Autre titre', referenceUrl: 'javascript:alert(1)' }).expect(400);
   });
 
-  it('réserve les paramètres et les journaux à l’admin et audite leur changement', async () => {
+  it('réserve les paramètres et les journaux au bibliothécaire habilité et audite leur changement', async () => {
     const body = { maxLoans: 4, loanDays: 21, pickupHours: 36, lateSuspensionDays: 7, minorDamageDays: 15 };
-    await mutate(librarian, 'patch', '/admin/settings', staffCsrf, body).expect(403);
-    await mutate(admin, 'patch', '/admin/settings', adminCsrf, { ...body, loanDays: 0 }).expect(400);
-    await mutate(admin, 'patch', '/admin/settings', adminCsrf, body).expect(200);
-    expect((await admin.get('/api/admin/settings').expect(200)).body.loanDays).toBe(21);
-    const audit = await admin.get('/api/admin/audit').expect(200);
+    await mutate(student, 'patch', '/staff/settings', studentCsrf, body).expect(403);
+    await mutate(manager, 'patch', '/staff/settings', managerCsrf, { ...body, loanDays: 0 }).expect(400);
+    await mutate(manager, 'patch', '/staff/settings', managerCsrf, body).expect(200);
+    expect((await manager.get('/api/staff/settings').expect(200)).body.loanDays).toBe(21);
+    const audit = await manager.get('/api/staff/audit').expect(200);
     expect(audit.body.items.some((item: any) => item.action === 'SETTINGS_UPDATED')).toBe(true);
   });
 
@@ -174,8 +180,8 @@ describe('Parcours HTTP réel et autorisations', () => {
     await mutate(student, 'post', `/staff/sanctions/${fine.id}/settle`, studentCsrf, { reason: 'Espèces reçues au guichet.' }).expect(403);
     await mutate(librarian, 'post', `/staff/sanctions/${fine.id}/settle`, staffCsrf, { reason: 'Reçu local de règlement fictif.' }).expect(200);
     const restriction = await prisma.sanction.create({ data: { studentId, type: 'BAN', reason: 'Interdiction fictive contestée.' } });
-    await mutate(librarian, 'post', `/admin/sanctions/${restriction.id}/revoke`, staffCsrf, { reason: 'Erreur constatée.' }).expect(403);
-    await mutate(admin, 'post', `/admin/sanctions/${restriction.id}/revoke`, adminCsrf, { reason: 'Erreur de dossier corrigée après contrôle de la carte.' }).expect(200);
+    await mutate(student, 'post', `/staff/sanctions/${restriction.id}/revoke`, studentCsrf, { reason: 'Erreur constatée.' }).expect(403);
+    await mutate(manager, 'post', `/staff/sanctions/${restriction.id}/revoke`, managerCsrf, { reason: 'Erreur de dossier corrigée après contrôle de la carte.' }).expect(200);
     expect(await prisma.auditLog.count({ where: { entityId: { in: [fine.id, restriction.id] }, action: { in: ['SANCTION_SETTLED', 'SANCTION_REVOKED'] } } })).toBe(2);
   });
 

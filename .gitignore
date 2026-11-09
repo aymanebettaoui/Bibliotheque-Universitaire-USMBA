@@ -9,6 +9,7 @@ work/
 *.log
 *.tsbuildinfo
 backend/var/uploads/
+backups/
 # Dépendances
 node_modules/
 

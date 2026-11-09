@@ -1,5 +1,6 @@
-export type Role = 'STUDENT' | 'LIBRARIAN' | 'ADMIN';
-export interface User { id: string; name: string; email: string; role: Role; active: boolean; student: null | { id: string; studentNumber: string | null; verified: boolean } }
+export type Role = 'STUDENT' | 'LIBRARIAN';
+export interface StaffPermissions { manageUsers: boolean; manageSettings: boolean; viewAudit: boolean; revokeSanctions: boolean }
+export interface User { id: string; name: string; email: string; role: Role; active: boolean; student: null | { id: string; studentNumber: string | null; verified: boolean }; permissions: StaffPermissions }
 export interface Session { user: User | null; csrfToken: string; demo: boolean; googleClientId: string | null; universityConfigured: boolean }
 export interface Named { id: string; name: string }
 export interface Copy { id: string; barcode: string; status: string; condition: string; book?: Book }

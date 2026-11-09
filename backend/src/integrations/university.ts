@@ -18,7 +18,7 @@ export class UnconfiguredUniversityConnector implements UniversityConnector {
 
 /** Fictional roster; never authenticates a real Google account. */
 export const demoRoster: ReadonlyArray<UniversityIdentity> = [
-  { studentNumber: 'R202400001', googleSub: 'demo:student', email: 'amina.demo@usmba.ac.ma', name: 'Amina El Fassi' },
+  { studentNumber: 'R202400001', googleSub: 'demo:student', email: 'amina.demo@usmba.ac.ma', name: 'Amina El Idrissi' },
   { studentNumber: 'R202400002', googleSub: 'demo:student2', email: 'yassine.demo@usmba.ac.ma', name: 'Yassine Bennani' },
   { studentNumber: 'R202400003', googleSub: 'demo:onboarding', email: 'inscription.demo@usmba.ac.ma', name: 'Samir Exemple' },
 ];

@@ -1,4 +1,5 @@
 @startuml
+!pragma layout smetana
 hide circle
 skinparam classAttributeIconSize 0
 title Modèle de domaine — noms alignés avec PostgreSQL / Prisma
@@ -9,6 +10,18 @@ class User {
  +name: String
  +role: Role
  +active: Boolean
+ +canManageUsers: Boolean
+ +canManageSettings: Boolean
+ +canViewAudit: Boolean
+ +canRevokeSanctions: Boolean
+}
+enum Role {
+ STUDENT
+ LIBRARIAN
+}
+class Bibliothecaire <<rôle métier>> {
+ +userId: UUID
+ +permissions: StaffPermissions
 }
 class Student {
  +id: UUID
@@ -115,6 +128,13 @@ class Acquisition {
  +comment: String?
  +bookId: UUID?
 }
+enum AcquisitionStatus {
+ SUBMITTED
+ REVIEW
+ ACCEPTED
+ REFUSED
+ ACQUIRED
+}
 class Notification {
  +id: UUID
  +type: String
@@ -150,7 +170,7 @@ class LibrarySettings {
 }
 class CirculationService <<service>> {
  +requestBorrow(userId: UUID, bookId: UUID, now?: DateTime): BorrowRequest
- +cancelRequest(userId: UUID, requestId: UUID, now?: DateTime): BorrowRequest
+ +cancelRequest(userId: UUID, requestId: UUID, now?: DateTime): {ok: Boolean}
  +handover(actorId: UUID, reservationId: UUID, input: HandoverInput, now?: DateTime): Loan
  +returnLoan(actorId: UUID, loanId: UUID, input: ReturnInput, now?: DateTime): Loan
  +expireReservations(now?: DateTime): Integer
@@ -174,6 +194,7 @@ class DemoUniversityConnector
 class UnconfiguredUniversityConnector
 UniversityConnector <|.. DemoUniversityConnector
 UniversityConnector <|.. UnconfiguredUniversityConnector
+User "1" o-- "0..1" Bibliothecaire : role = LIBRARIAN
 User "1" *-- "0..1" Student : profil
 User "1" -- "0..*" IdentityVerification
 User "1" *-- "0..*" Session
@@ -217,8 +238,14 @@ Au plus une affectation active par exemplaire.
 end note
 note bottom of User
 Bibliothécaire = User(role=LIBRARIAN).
-Administrateur = User(role=ADMIN).
-Pas de sous-classe vide ni de mot de passe.
+Bibliothecaire est une vue métier, pas une table Prisma.
+Les permissions sensibles sont explicites.
+Pas de mot de passe local.
+end note
+note bottom of AcquisitionStatus
+Transitions principales : SUBMITTED → REVIEW/ACCEPTED/REFUSED,
+REVIEW → ACCEPTED/REFUSED, ACCEPTED → ACQUIRED/REFUSED,
+REFUSED → REVIEW. ACQUIRED est terminal.
 end note
 note bottom of Infraction
 Unicité (loanId, type) : un même retard

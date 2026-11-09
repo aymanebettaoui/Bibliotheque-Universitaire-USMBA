@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../config/db.js';
-import { publicUser, requireRoles } from '../middleware/auth.js';
+import { publicUser, requirePermission, requireRoles } from '../middleware/auth.js';
 import { HttpError, asyncHandler } from '../middleware/error.js';
 import { connectorForIdentity } from '../integrations/university.js';
 
@@ -58,16 +58,16 @@ onboardingRouter.post('/onboarding/review', requireRoles('STUDENT'), verificatio
     await tx.$queryRaw`SELECT id FROM "Student" WHERE id = ${user.student!.id}::uuid FOR UPDATE`;
     const pending = await tx.identityVerification.findFirst({ where: { userId: user.id, status: 'REVIEW_REQUESTED' } });
     if (pending) throw new HttpError(409, 'REVIEW_ALREADY_REQUESTED', 'Votre demande de vérification est déjà en attente. Présentez votre carte physique à la bibliothèque.');
-    const created = await tx.identityVerification.create({ data: { userId: user.id, studentNumber: studentNumber || 'UNREADABLE', provider: 'ADMIN_REVIEW', status: 'REVIEW_REQUESTED' } });
+    const created = await tx.identityVerification.create({ data: { userId: user.id, studentNumber: studentNumber || 'UNREADABLE', provider: 'LIBRARIAN_REVIEW', status: 'REVIEW_REQUESTED' } });
     await tx.auditLog.create({ data: { userId: user.id, action: 'IDENTITY_REVIEW_REQUESTED', entity: 'IdentityVerification', entityId: created.id, details: { reason } } });
-    const admins = await tx.user.findMany({ where: { role: 'ADMIN', active: true }, select: { id: true } });
-    if (admins.length) await tx.notification.createMany({ data: admins.map(admin => ({ userId: admin.id, type: 'IDENTITY_REVIEW_REQUESTED', content: `${user.name} demande une vérification de sa carte physique.`, dedupeKey: `identity-review:${created.id}:${admin.id}` })) });
+    const reviewers = await tx.user.findMany({ where: { role: 'LIBRARIAN', active: true, canManageUsers: true }, select: { id: true } });
+    if (reviewers.length) await tx.notification.createMany({ data: reviewers.map(reviewer => ({ userId: reviewer.id, type: 'IDENTITY_REVIEW_REQUESTED', content: `${user.name} demande une vérification de sa carte physique.`, dedupeKey: `identity-review:${created.id}:${reviewer.id}` })) });
     return created;
   });
-  res.status(201).json({ id: review.id, status: review.status, message: 'Demande enregistrée. Présentez votre carte physique à un administrateur de la bibliothèque.' });
+  res.status(201).json({ id: review.id, status: review.status, message: 'Demande enregistrée. Présentez votre carte physique à un bibliothécaire habilité.' });
 }));
 
-onboardingRouter.get('/admin/identity-reviews', requireRoles('ADMIN'), asyncHandler(async (_req, res) => {
+onboardingRouter.get('/staff/identity-reviews', requireRoles('LIBRARIAN'), requirePermission('canManageUsers'), asyncHandler(async (_req, res) => {
   const items = await prisma.identityVerification.findMany({
     where: { status: 'REVIEW_REQUESTED', user: { student: { is: { verified: false } } } },
     include: { user: { select: { id: true, name: true, email: true, student: true } } },
@@ -76,7 +76,7 @@ onboardingRouter.get('/admin/identity-reviews', requireRoles('ADMIN'), asyncHand
   res.json({ items });
 }));
 
-onboardingRouter.post('/admin/students/:id/verify', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
+onboardingRouter.post('/staff/students/:id/verify', requireRoles('LIBRARIAN'), requirePermission('canManageUsers'), asyncHandler(async (req, res) => {
   const id = z.string().uuid().parse(req.params.id);
   const { studentNumber, reason } = z.object({ studentNumber: studentNumberSchema, reason: z.string().trim().min(20).max(500), physicalConfirmed: z.literal(true) }).strict().parse(req.body);
   const student = await prisma.$transaction(async tx => {
@@ -87,10 +87,10 @@ onboardingRouter.post('/admin/students/:id/verify', requireRoles('ADMIN'), async
     if (target.verified) throw new HttpError(409, 'ALREADY_VERIFIED', 'Cet étudiant est déjà vérifié.');
     const updated = await tx.student.update({ where: { id }, data: { studentNumber, verified: true } });
     await tx.identityVerification.updateMany({ where: { userId: target.userId, status: 'REVIEW_REQUESTED' }, data: { status: 'RESOLVED', verifiedAt: new Date() } });
-    await tx.identityVerification.create({ data: { userId: target.userId, studentNumber, provider: 'ADMIN_REVIEW', status: 'VERIFIED', verifiedAt: new Date() } });
-    await tx.auditLog.create({ data: { userId: req.auth!.user.id, action: 'IDENTITY_VERIFIED_MANUALLY', entity: 'Student', entityId: id, details: { reason, provider: 'ADMIN_REVIEW', physicalConfirmed: true } } });
-    await tx.notification.create({ data: { userId: target.userId, type: 'ACCOUNT_ACTIVATED', content: 'Votre carte physique a été vérifiée par un administrateur. Votre compte étudiant est activé.', dedupeKey: `account-verified:${target.userId}` } });
+    await tx.identityVerification.create({ data: { userId: target.userId, studentNumber, provider: 'LIBRARIAN_REVIEW', status: 'VERIFIED', verifiedAt: new Date() } });
+    await tx.auditLog.create({ data: { userId: req.auth!.user.id, action: 'IDENTITY_VERIFIED_MANUALLY', entity: 'Student', entityId: id, details: { reason, provider: 'LIBRARIAN_REVIEW', physicalConfirmed: true } } });
+    await tx.notification.create({ data: { userId: target.userId, type: 'ACCOUNT_ACTIVATED', content: 'Votre carte physique a été vérifiée par un bibliothécaire habilité. Votre compte étudiant est activé.', dedupeKey: `account-verified:${target.userId}` } });
     return updated;
   });
-  res.json({ student, verification: { provider: 'ADMIN_REVIEW', status: 'VERIFIED', message: 'Vérification administrative de la carte physique enregistrée ; aucune API universitaire n’a été interrogée.' } });
+  res.json({ student, verification: { provider: 'LIBRARIAN_REVIEW', status: 'VERIFIED', message: 'Vérification physique par un bibliothécaire enregistrée ; aucune API universitaire n’a été interrogée.' } });
 }));

@@ -12,6 +12,7 @@ const userIds: string[] = [];
 const bookIds: string[] = [];
 const prefix = `test-${randomUUID()}`;
 let staffId: string;
+let originalSettings: { maxLoans: number; loanDays: number; pickupHours: number; lateSuspensionDays: number; minorDamageDays: number };
 const now = new Date('2026-11-08T12:00:00.000Z');
 const day = 86_400_000;
 
@@ -63,7 +64,8 @@ async function existingLateLoan(user: Awaited<ReturnType<typeof student>>, event
 beforeAll(async () => {
   if (process.env.NODE_ENV === 'production') throw new Error('Integration tests cannot run with NODE_ENV=production.');
   await prisma.$connect();
-  await prisma.librarySettings.upsert({ where: { id: 'singleton' }, create: {}, update: {} });
+  originalSettings = await prisma.librarySettings.upsert({ where: { id: 'singleton' }, create: {}, update: {} });
+  await prisma.librarySettings.update({ where: { id: 'singleton' }, data: { maxLoans: 3, loanDays: 14, pickupHours: 48, lateSuspensionDays: 7, minorDamageDays: 15 } });
   staffId = randomUUID(); userIds.push(staffId);
   await prisma.user.create({ data: { id: staffId, email: `${staffId}@usmba.ac.ma`, googleSub: `${prefix}:staff`, name: 'Bibliothécaire de test fictif', role: 'LIBRARIAN' } });
 });
@@ -93,6 +95,7 @@ afterAll(async () => {
     prisma.student.deleteMany({ where: { id: { in: studentIds } } }),
     prisma.user.deleteMany({ where: { id: { in: userIds } } }),
   ]);
+  await prisma.librarySettings.update({ where: { id: 'singleton' }, data: originalSettings });
   await prisma.$disconnect();
 });
 
@@ -354,7 +357,7 @@ describe('Parcours API réel et séparation des rôles', () => {
     const reservationId = accepted.body.reservation.id;
     const input = { studentNumber: user.student!.studentNumber, barcode: b.copies[0]!.barcode };
     await supertest(app).post(`/api/staff/reservations/${reservationId}/handover`).set('Cookie', studentSession.cookie).set('Origin', configuredOrigin()).set('X-CSRF-Token', studentSession.csrf).send(input).expect(403);
-    await supertest(app).get('/api/admin/users').set('Cookie', studentSession.cookie).expect(403);
+    await supertest(app).get('/api/staff/users').set('Cookie', studentSession.cookie).expect(403);
     const given = await supertest(app).post(`/api/staff/reservations/${reservationId}/handover`).set('Cookie', staffSession.cookie).set('Origin', configuredOrigin()).set('X-CSRF-Token', staffSession.csrf).send(input).expect(201);
     expect(given.body.status).toBe('ACTIVE');
     const mine = await supertest(app).get('/api/me/loans').set('Cookie', studentSession.cookie).expect(200);

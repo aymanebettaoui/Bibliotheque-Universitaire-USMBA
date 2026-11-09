@@ -5,7 +5,7 @@ const now=new Date();
 const at=(days:number)=>new Date(now.getTime()+days*day);
 if(process.env.NODE_ENV==='production' || process.env.DEMO_MODE!=='true')throw new Error('Le peuplement fictif est réservé à DEMO_MODE=true hors production.');
 const onboardingData={id:'10000000-0000-4000-8000-000000000005',googleSub:'demo:onboarding',email:'inscription.demo@usmba.ac.ma',name:'Samir Exemple',role:'STUDENT' as const,student:{create:{id:'20000000-0000-4000-8000-000000000005',verified:false}}};
-const ids={student:'10000000-0000-4000-8000-000000000001',student2:'10000000-0000-4000-8000-000000000002',librarian:'10000000-0000-4000-8000-000000000003',admin:'10000000-0000-4000-8000-000000000004'};
+const ids={student:'10000000-0000-4000-8000-000000000001',student2:'10000000-0000-4000-8000-000000000002',librarian:'10000000-0000-4000-8000-000000000003',manager:'10000000-0000-4000-8000-000000000004'};
 const books=[
  {title:'Clean Code',authors:['Robert C. Martin'],category:'Informatique',year:2008,publisher:'Prentice Hall',isbn:'9780132350884',price:280,color:'#234453',description:'Les principes et les bonnes pratiques pour écrire un code lisible, maintenable et rigoureusement testé.'},
  {title:'Introduction à l’algorithmique',authors:['Thomas H. Cormen','Charles E. Leiserson','Ronald L. Rivest','Clifford Stein'],category:'Informatique',year:2022,publisher:'Dunod',isbn:'9782100847137',price:450,color:'#9e5c43',description:'Une référence pour comprendre les structures de données, la complexité et les grands algorithmes.'},
@@ -30,8 +30,8 @@ async function main(){
  await prisma.$transaction(async tx=>{
   const amina=await tx.user.create({data:{id:ids.student,googleSub:'demo:student',email:'amina.demo@usmba.ac.ma',name:'Amina El Idrissi',role:'STUDENT',student:{create:{id:'20000000-0000-4000-8000-000000000001',studentNumber:'R202400001',verified:true}}},include:{student:true}});
   const yassine=await tx.user.create({data:{id:ids.student2,googleSub:'demo:student2',email:'yassine.demo@usmba.ac.ma',name:'Yassine Bennani',role:'STUDENT',student:{create:{id:'20000000-0000-4000-8000-000000000002',studentNumber:'R202400002',verified:true,lateCycle:1}}},include:{student:true}});
-  await tx.user.create({data:{id:ids.librarian,googleSub:'demo:librarian',email:'bibliothecaire.demo@usmba.ac.ma',name:'Salma Alaoui',role:'LIBRARIAN'}});
-  await tx.user.create({data:{id:ids.admin,googleSub:'demo:admin',email:'admin.demo@usmba.ac.ma',name:'Omar Fassi',role:'ADMIN'}});
+  await tx.user.create({data:{id:ids.librarian,googleSub:'demo:librarian',email:'bibliothecaire.demo@usmba.ac.ma',name:'Salma Alaoui',role:'LIBRARIAN',canManageUsers:true,canManageSettings:true,canViewAudit:true,canRevokeSanctions:true}});
+  await tx.user.create({data:{id:ids.manager,googleSub:'demo:manager',email:'responsable.demo@usmba.ac.ma',name:'Omar Fassi',role:'LIBRARIAN',canManageUsers:true,canManageSettings:true,canViewAudit:true,canRevokeSanctions:true}});
   await tx.user.upsert({where:{googleSub:'demo:onboarding'},create:onboardingData,update:{}});
   await tx.librarySettings.upsert({where:{id:'singleton'},create:{id:'singleton'},update:{}});
   await tx.identityVerification.createMany({data:[{userId:amina.id,studentNumber:'R202400001',provider:'DEMO',status:'VERIFIED',verifiedAt:at(-30)},{userId:yassine.id,studentNumber:'R202400002',provider:'DEMO',status:'VERIFIED',verifiedAt:at(-30)}]});
@@ -70,7 +70,7 @@ async function main(){
   await tx.borrowRequest.create({data:{studentId:amina.student!.id,bookId:saved[11].id,status:'REFUSED',reason:'La limite d’emprunts était atteinte lors de cette demande.',createdAt:at(-10)}});
   await tx.acquisition.createMany({data:[{studentId:amina.student!.id,title:'The Pragmatic Programmer',author:'David Thomas, Andrew Hunt',category:'Informatique',reason:'Pour approfondir les bonnes pratiques de développement.',status:'SUBMITTED'},{studentId:yassine.student!.id,title:'Introduction à la sociologie',author:'Philippe Riutort',category:'Sciences humaines',reason:'Un support pour le cours de première année.',status:'ACCEPTED',comment:'Proposition retenue ; l’acquisition physique reste à effectuer.'}]});
   await tx.notification.createMany({data:[{userId:amina.id,type:'ACCOUNT_ACTIVATED',content:'Vérification simulée — environnement de démonstration. Votre espace étudiant fictif est prêt.'},{userId:amina.id,type:'REQUEST_ACCEPTED',content:'Bases de données vous attend au guichet. Présentez votre carte universitaire avant l’échéance.'},{userId:amina.id,type:'LOAN_CONFIRMED',content:'Votre emprunt de Clean Code est actif. Consultez la date de retour dans votre espace.'},{userId:ids.librarian,type:'ACQUISITION_SUBMITTED',content:'Une proposition d’acquisition de The Pragmatic Programmer est à étudier.'},{userId:yassine.id,type:'LOAN_OVERDUE',content:'Le retour de votre ouvrage Intelligence artificielle est en retard.'}]});
-  await tx.auditLog.create({data:{userId:ids.admin,action:'DEMO_DATABASE_SEEDED',entity:'Library',entityId:'demo',details:{books:books.length,fictional:true}}});
+  await tx.auditLog.create({data:{userId:ids.manager,action:'DEMO_DATABASE_SEEDED',entity:'Library',entityId:'demo',details:{books:books.length,fictional:true}}});
  },{timeout:60000});
  console.info(`Démonstration créée : ${books.length} ouvrages, 5 comptes fictifs et circulation persistante.`);
 }

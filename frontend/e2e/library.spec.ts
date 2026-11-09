@@ -24,13 +24,33 @@ async function uiLogin(page: Page, role: Role) {
 }
 async function uiLogout(page: Page) {
   await page.getByRole('button', { name: 'Se déconnecter', exact: true }).click();
-  await expect(page.getByRole('link', { name: /^Se connecter/ })).toBeVisible();
+  await expect(page).toHaveURL(/\/connexion$/);
+  await expect(page.getByRole('button', { name: 'Étudiant — Démo', exact: true })).toBeVisible();
 }
 
 test.beforeAll(async ({ request }) => {
   const health = await request.get('/api/health');
   await expect(health).toBeOK();
   expect((await health.json()).demo, 'Ne jamais exécuter ces scénarios contre une instance de production.').toBe(true);
+});
+
+test('inscription OCR fictive reproductible puis reconnexion sans nouveau scan', async ({ page }) => {
+  await page.goto('/connexion');
+  await expect(page.getByText('Se connecter avec Google', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Étudiant — Démo', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Bibliothécaire — Démo', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Tester l’inscription par scan', exact: true })).toBeVisible();
+  await expect(page.getByText(/administrateur/i)).toHaveCount(0);
+  await page.getByTestId('demo-login-ONBOARDING').click();
+  await expect(page).toHaveURL(/\/verification$/);
+  await page.getByLabel('Importer une photographie de carte').setInputFiles('frontend/public/demo-card.png');
+  await expect(page.getByLabel('Numéro étudiant / CNE')).toHaveValue('R202400003', { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Vérifier mes informations' }).click();
+  await expect(page).toHaveURL(/\/espace$/, { timeout: 20_000 });
+  await expect(page.getByText(/Vérification simulée/)).toBeVisible();
+  await uiLogout(page);
+  await page.getByTestId('demo-login-ONBOARDING').click();
+  await expect(page).toHaveURL(/\/espace$/);
 });
 
 test('parcours physique complet : étudiant, réservation, remise, emprunt et retour', async ({ page, baseURL }, testInfo) => {
@@ -84,7 +104,7 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
     let loanId = '';
     await test.step('Contrôle de la carte et de l’exemplaire au guichet', async () => {
       await uiLogout(page); await uiLogin(page, 'LIBRARIAN');
-      await page.goto('/gestion/guichet');
+      await page.goto('/gestion/reservations');
       await page.getByTestId(`reservation-row-${reservationId}`).getByTestId('handover-button').click();
       const dialog = page.getByRole('dialog', { name: 'Confirmer la remise physique', exact: true });
       await dialog.getByLabel('Numéro de la carte universitaire présentée').fill(studentNumber);
@@ -107,7 +127,7 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
 
     await test.step('Retour normal par le personnel puis disponibilité publique actualisée', async () => {
       await uiLogout(page); await uiLogin(page, 'LIBRARIAN');
-      await page.goto('/gestion/guichet');
+      await page.goto('/gestion/emprunts');
       await page.getByRole('tab', { name: /Emprunts actifs/ }).click();
       await page.getByTestId(`loan-row-${loanId}`).getByTestId('return-button').click();
       const dialog = page.getByRole('dialog', { name: 'Enregistrer le retour', exact: true });

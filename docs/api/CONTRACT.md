@@ -12,13 +12,13 @@ Application locale React/Vite → Express → Prisma/PostgreSQL. Le cahier des c
 ## Authentification
 
 `GET /auth/me` → `{user:null|{id,name,email,role,active,student:null|{id,studentNumber,verified}},csrfToken,demo,googleClientId,universityConfigured}`.
-`POST /auth/demo` `{role:"STUDENT"|"LIBRARIAN"|"ADMIN",scenario?:"ONBOARDING"}` → session fictive clairement signalée, seulement si DEMO_MODE=true ET NODE_ENV!=production; `{user,csrfToken}`. Le scénario ONBOARDING exige STUDENT et sélectionne exclusivement le compte fictif prédéfini `demo:onboarding` (Samir Exemple, `inscription.demo@usmba.ac.ma`, CNE `R202400003`). Aucun identifiant libre n’est accepté. Le parcours standard exclut ce compte. Après une première vérification réussie, la connexion suivante conserve le statut vérifié et ne demande aucun nouveau scan; `db:reset` permet de recommencer une démonstration. Jamais de rôle libre en production.
+`POST /auth/demo` `{role:"STUDENT"|"LIBRARIAN",scenario?:"ONBOARDING"}` → session fictive clairement signalée, seulement si DEMO_MODE=true ET NODE_ENV!=production; `{user,csrfToken}`. Le scénario ONBOARDING exige STUDENT et sélectionne exclusivement `demo:onboarding` (Samir Exemple, `inscription.demo@usmba.ac.ma`, CNE `R202400003`). Après vérification, la reconnexion ne demande aucun scan. Le lanceur E2E remet seulement cette fixture en état initial dans `library_test`, sans reset global. Jamais de rôle libre en production.
 `GET /auth/google/nonce` → `{nonce,csrfToken}`; `POST /auth/google` `{credential,nonce}` Google ID token vérifié serveur.
 `POST /auth/logout`.
 `POST /onboarding/verify` `{studentNumber}` → vérification connecteur, pas confiance en l’OCR. Auth requise. Fournisseur officiel non configuré → 503 en production.
 `POST /onboarding/review` `{reason,studentNumber?}` → demande de contrôle physique manuel enregistrée, sans activation automatique.
-`GET /admin/identity-reviews` → `{items}` demandes de contrôle physique en attente, administrateur uniquement.
-`POST /admin/students/:id/verify` `{studentNumber,reason,physicalConfirmed:true}` → vérification administrative physique, justifiée et auditée; fournisseur `ADMIN_REVIEW`, jamais présentée comme une vérification par l’API universitaire.
+`GET /staff/identity-reviews` → `{items}` demandes de contrôle physique, LIBRARIAN avec `canManageUsers`.
+`POST /staff/students/:id/verify` `{studentNumber,reason,physicalConfirmed:true}` → vérification physique justifiée et auditée; fournisseur `LIBRARIAN_REVIEW`, jamais présentée comme une vérification par l’API universitaire.
 
 ## Catalogue et étudiant
 
@@ -35,9 +35,9 @@ Application locale React/Vite → Express → Prisma/PostgreSQL. Le cahier des c
 `GET /notifications` et `POST /notifications/:id/read` (propriétaire).
 `GET /acquisitions` (étudiant: les siennes; personnel: toutes), `POST /acquisitions` `{title,author,category,referenceUrl?,reason?}`.
 
-## Bibliothécaire et administrateur
+## Bibliothécaire
 
-Personnel = LIBRARIAN ou ADMIN. Admin seul gère paramètres/personnel/audit.
+Personnel = LIBRARIAN. Les opérations sensibles exigent les permissions explicites exposées dans la session.
 
 `GET /staff/dashboard` → `{books,copies,available,reserved,loaned,overdue,damaged,lost,recentRequests,acquisitions}`.
 `GET /staff/requests` → `{items}` avec student.user, book et reservation.copy.
@@ -49,10 +49,10 @@ Personnel = LIBRARIAN ou ADMIN. Admin seul gère paramètres/personnel/audit.
 `POST /staff/books/:id/copies` `{count:1..50}` → `{items}` codes uniques générés.
 `PATCH /staff/copies/:id` `{condition,status,reason}` contrôles circulation et audit.
 `PATCH /staff/acquisitions/:id` `{status,comment?,bookId?}`; ACQUIRED exige une fiche avec exemplaire réel.
-`GET /staff/sanctions` → `{items}`; `POST /staff/sanctions/:id/settle` `{reason}` personnel; `POST /admin/sanctions/:id/revoke` `{reason}` admin.
-`GET /admin/settings`, `PATCH /admin/settings` `{maxLoans,loanDays,pickupHours,lateSuspensionDays,minorDamageDays}`.
-`GET /admin/users` → `{items}`; `PATCH /admin/users/:id` `{role?,active?}` empêche la suppression du dernier admin, audit.
-`GET /admin/audit` → `{items}`.
+`GET /staff/sanctions` → `{items}`; `POST /staff/sanctions/:id/settle` `{reason}`; `POST /staff/sanctions/:id/revoke` `{reason}` avec `canRevokeSanctions`.
+`GET /staff/settings`, `PATCH /staff/settings` `{maxLoans,loanDays,pickupHours,lateSuspensionDays,minorDamageDays}` avec `canManageSettings`.
+`GET /staff/users` → `{items}`; `PATCH /staff/users/:id` `{active}` avec `canManageUsers`; aucune promotion HTTP.
+`GET /staff/audit` → `{items}` avec `canViewAudit`.
 
 ## Règles critiques
 
