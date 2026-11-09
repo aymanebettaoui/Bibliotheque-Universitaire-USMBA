@@ -10,6 +10,13 @@ work/
 *.tsbuildinfo
 backend/var/uploads/
 backups/
+*.dump
+*.sql.gz
+*.bak
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 # Dépendances
 node_modules/
 

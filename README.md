@@ -1,46 +1,79 @@
-# UniBiblio — Bibliothèque universitaire
+# Bibliothèque Universitaire USMBA
 
-Application de gestion de livres **physiques** : catalogue public, sessions Google OIDC, inscription par caméra/OCR, demandes automatiques, réservations, guichet de remise/retour, sanctions, propositions d'acquisition, notifications et gestion bibliothécaire.
+*Application web de gestion des ouvrages, réservations et emprunts d'une bibliothèque universitaire.*
 
-Le projet est un monorepo React/TypeScript/Vite et Express/Prisma/PostgreSQL. Les données et mutations passent réellement par le backend et la base PostgreSQL ; le frontend ne contient pas de stockage métier de remplacement. Les sources UML et leurs SVG se trouvent dans [`docs/uml`](docs/uml/README.md).
+Cette application dématérialise les procédures d'une bibliothèque physique : recherche au catalogue, demande d'ouvrage, réservation d'un exemplaire, remise au guichet et retour. Elle propose deux espaces distincts, **Étudiant** et **Bibliothécaire**. Il ne s'agit pas d'une plateforme de lecture ou de téléchargement de livres numériques.
 
-## Ce qui nécessite encore vos accès
+![Catalogue de la Bibliothèque Universitaire USMBA](docs/screenshots/catalogue.png)
 
-- **Google** : aucun client OAuth n'a été fourni. Le code vérifie les jetons avec la bibliothèque officielle Google, mais la connexion à un vrai compte doit être configurée puis validée avec vos accès. Aucun mot de passe n'est demandé.
-- **Université** : aucun protocole ni accès à une base officielle n'a été fourni. Le connecteur production refuse l'activation sur OCR seul. Le fournisseur de démonstration traite uniquement des étudiants fictifs.
-- **Caméra/OCR** : une caméra réelle et une permission navigateur sont nécessaires. La reconnaissance peut échouer et ne vaut pas preuve d'identité. Le parcours matériel doit être vérifié sur vos appareils.
-- **Tests et couverture** : consulter le [bilan de validation](docs/testing.md) et le [bilan par phase](docs/phase-status.md). Un fichier de test fourni n'est pas une preuve d'exécution.
+## Fonctionnalités
 
-Validation effectuée : **74 tests serveur réussis sur PostgreSQL réel**, compilation/build backend et frontend réussis, OCR Tesseract réellement exécuté sur la carte fictive, et **4 scénarios Playwright réussis dans Chromium** sur `library_test`. La caméra matérielle et une connexion Google réelle ne sont pas attestées ; voir le bilan détaillé.
+| Espace étudiant | Espace bibliothécaire |
+| --- | --- |
+| Connexion avec un compte universitaire Google | Tableau de bord de la bibliothèque |
+| Première inscription avec reconnaissance OCR de la carte | Gestion des ouvrages, auteurs, catégories et exemplaires |
+| Consultation, recherche et filtrage du catalogue | Traitement des réservations et confirmation de la remise physique |
+| Disponibilité des exemplaires en temps réel | Enregistrement des retours et de l'état des exemplaires |
+| Demandes d'emprunt et réservations | Suivi des retards, incidents, sanctions et règlements |
+| Suivi des emprunts actifs et des dates de retour | Gestion des propositions d'acquisition |
+| Notifications et consultation des sanctions | Gestion des utilisateurs et contrôles physiques selon habilitation |
+| Propositions d'acquisition | Configuration des paramètres métier selon habilitation |
+| Recommandations selon l'historique de catégories | Consultation du journal d'audit selon habilitation |
 
-Il n'y a ni livres numériques téléchargeables, ni passerelle bancaire, ni emails envoyés. Les notifications sont internes et le règlement d'une pénalité est enregistré au guichet.
+L'application comporte uniquement les rôles métier `STUDENT` et `LIBRARIAN`. Les opérations sensibles d'un bibliothécaire sont en plus protégées par des habilitations explicites.
 
-## Installation sur Windows, pas à pas
+### Parcours d'un emprunt
 
-### 1. Installer les prérequis
+1. L'étudiant consulte le catalogue et demande un ouvrage.
+2. Le serveur vérifie son profil, ses sanctions, son quota et la disponibilité.
+3. Si la demande est acceptée, un exemplaire est réservé pour une durée limitée.
+4. L'étudiant présente sa carte à la bibliothèque.
+5. Le bibliothécaire confirme la remise de l'exemplaire ; l'emprunt devient alors actif.
+6. Au retour, le bibliothécaire enregistre l'état physique de l'exemplaire.
+7. La disponibilité est mise à jour et les règles de retard ou d'incident sont appliquées si nécessaire.
 
-1. Installer **Node.js 22.12 ou supérieur** depuis <https://nodejs.org/> (version LTS recommandée), avec npm.
-2. Installer **Docker Desktop pour Windows** depuis <https://www.docker.com/products/docker-desktop/>. Activer WSL 2 lorsque l'installateur le demande et redémarrer Windows si nécessaire.
-3. Démarrer Docker Desktop et attendre que son moteur soit prêt. Si WSL manque, ouvrir PowerShell en administrateur, exécuter `wsl --install`, redémarrer puis relancer Docker Desktop.
-4. Extraire l'archive du projet dans un dossier accessible, par exemple `C:\Projets\library-management`. Git est facultatif pour une installation depuis ZIP ; l'installer depuis <https://git-scm.com/> si vous utilisez un dépôt.
-5. Ouvrir **PowerShell** dans ce dossier. Fermer et rouvrir le terminal après l'installation de Node pour actualiser le PATH.
+Une **demande** est la décision sollicitée par l'étudiant. Une **réservation** immobilise temporairement un exemplaire accepté, sans créer de prêt. L'**emprunt** commence seulement après la remise physique confirmée au guichet.
 
-Vérifier les outils :
+## Aperçu des interfaces
+
+| Connexion et parcours de démonstration | Tableau de bord étudiant |
+| --- | --- |
+| ![Connexion Google et options de démonstration](docs/screenshots/connexion.png) | ![Tableau de bord étudiant](docs/screenshots/etudiant-dashboard.png) |
+| Demandes et réservations | Suivi des emprunts |
+| ![Demandes et réservations de l'étudiant](docs/screenshots/reservations.png) | ![Emprunts de l'étudiant](docs/screenshots/emprunts.png) |
+| Tableau de bord bibliothécaire | Gestion des remises et retours |
+| ![Tableau de bord bibliothécaire](docs/screenshots/bibliothecaire-dashboard.png) | ![Gestion des emprunts](docs/screenshots/gestion-emprunts.png) |
+| Sanctions et règlements | Inscription OCR de démonstration |
+| ![Gestion des sanctions](docs/screenshots/sanctions.png) | ![Inscription par OCR avec une carte fictive](docs/screenshots/ocr-demo.png) |
+
+Des captures supplémentaires de la recherche au catalogue et des paramètres métier sont disponibles dans [`docs/screenshots`](docs/screenshots/).
+
+## Technologies
+
+| Couche | Technologies utilisées |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite 7, React Router, TanStack Query, Tailwind CSS |
+| Backend | Node.js, Express 4, TypeScript, Zod |
+| Données | PostgreSQL 16, Prisma 6.19.0 |
+| Authentification | Google Identity Services, sessions serveur sécurisées, contrôle des rôles et habilitations |
+| OCR et images | Tesseract.js, Sharp |
+| Tests | Vitest, Supertest, Playwright Chromium |
+| Environnement local | Docker Compose, monorepo npm workspaces |
+
+## Installation locale
+
+### Prérequis
+
+- Node.js 22.12 ou version ultérieure ;
+- npm ;
+- Docker Desktop avec Docker Compose ;
+- Git.
+
+### Préparer le projet
 
 ```powershell
-node --version
-npm --version
-docker --version
-docker compose version
-```
-
-Si PowerShell interdit `npm.ps1`, utiliser `npm.cmd` à la place de `npm` dans les commandes suivantes, sans désactiver globalement la politique de sécurité Windows.
-
-### 2. Configurer et initialiser
-
-Toutes les commandes suivantes s'exécutent **à la racine du projet**, là où se trouve ce README.
-
-```powershell
+git clone <URL_DU_DEPOT>
+cd library-management
 Copy-Item .env.example .env
 docker compose up -d db
 npm ci
@@ -49,39 +82,40 @@ npm run db:migrate
 npm run db:seed
 ```
 
-`docker compose up -d db` lance PostgreSQL 16 dans un volume persistant. Le mot de passe de `.env.example` est réservé à une démonstration locale. `DATABASE_URL` doit correspondre aux valeurs `POSTGRES_USER`, `POSTGRES_PASSWORD` et `POSTGRES_DB`.
+Sous macOS ou Linux, remplacer `Copy-Item .env.example .env` par `cp .env.example .env`.
 
-Le port local 5432 doit être libre. Si PostgreSQL est déjà installé sur votre ordinateur, adaptez le port publié dans `docker-compose.yml` et celui de `DATABASE_URL`. Attendre l'état `healthy` avec `docker compose ps` avant les migrations.
+Le fichier `.env.example` contient uniquement une configuration locale fictive. Avant de démarrer, adapter si nécessaire `DATABASE_URL`, `TEST_DATABASE_URL`, `APP_ORIGIN` et `SESSION_SECRET`. Pour la connexion Google réelle, renseigner le `GOOGLE_CLIENT_ID` d'un client Web et déclarer `http://localhost:5173` parmi ses origines JavaScript autorisées.
 
-### 3. Démarrer
+Les migrations Prisma préparent une base neuve sans recommander ni exécuter de réinitialisation d'une base existante. Le seed ajoute le catalogue fictif lorsqu'il est absent.
+
+### Démarrer l'application
 
 ```powershell
 npm run dev
 ```
 
-Ouvrir **<http://localhost:5173>**. Le frontend transmet `/api` au backend Express, disponible sur le port 3001. Garder le terminal ouvert ; `Ctrl+C` arrête les serveurs. Les jobs backend tournent au démarrage puis toutes les minutes pendant que le backend fonctionne.
+L'interface est disponible sur [http://localhost:5173](http://localhost:5173) et l'API Express sur `http://localhost:3001`. La commande démarre simultanément le frontend et le backend.
 
-Les origines doivent rester cohérentes : si vous remplacez `localhost` par une adresse IP ou changez le port, mettre à jour `APP_ORIGIN`, le proxy Vite et les origines OAuth. La caméra requiert HTTPS, sauf pour `localhost` reconnu comme contexte sûr par le navigateur.
+> Une utilisation institutionnelle nécessite en plus une configuration Google valide, HTTPS et un connecteur universitaire officiel. L'OCR seul n'active jamais un compte Google réel lorsque ce connecteur n'est pas configuré.
 
-### 4. Essayer les données fictives
+## Mode démonstration
 
-Avec `DEMO_MODE=true` et `NODE_ENV=development`, la page de connexion donne accès aux deux rôles de démonstration étudiant et bibliothécaire. La bannière rappelle le caractère fictif de l'environnement. Ce mécanisme est interdit en production et ne permet pas de transformer un vrai compte Google en personnel.
+Avec `DEMO_MODE=true` et `NODE_ENV=development`, la page `/connexion` propose trois parcours indépendants de Google OAuth :
 
-Parcours conseillé :
+- **Étudiant — Démo** ouvre un compte étudiant fictif et son espace personnel ;
+- **Bibliothécaire — Démo** ouvre un compte bibliothécaire fictif et l'espace de gestion ;
+- **Tester l'inscription par scan** lance une première inscription fictive. Importer [`frontend/public/demo-card.png`](frontend/public/demo-card.png), puis lancer l'OCR pour reconnaître le numéro `R202400003`.
 
-1. Ouvrir le catalogue et choisir un livre disponible.
-2. Entrer comme étudiant de démonstration puis demander le livre. La décision du serveur et l'échéance de récupération apparaissent dans les demandes.
-3. Se déconnecter puis entrer comme bibliothécaire. Au guichet, sélectionner la réservation et confirmer le numéro étudiant et le code de l'exemplaire.
-4. Revenir comme étudiant : le prêt est actif avec sa date de retour.
-5. Revenir comme bibliothécaire : enregistrer le retour et l'état physique. Le catalogue se met à jour ; le prêt clos reste dans l'historique.
+Les comptes, le catalogue et la carte sont entièrement fictifs. Ce parcours OCR illustre le fonctionnement technique mais ne constitue pas une vérification universitaire officielle. Le serveur refuse le mode démonstration en production ; `DEMO_MODE` doit y rester désactivé.
 
-Les étudiants usuels du seed sont déjà vérifiés pour faciliter les emprunts. Le bouton démo **« Tester l’inscription par scan »** ouvre un profil fictif distinct : Samir Exemple. Pour un parcours reproductible, lancer Playwright sur `library_test` : le lanceur remet uniquement la fixture `demo:onboarding` en état non vérifié, sans réinitialiser PostgreSQL ni toucher aux autres comptes. Importer `frontend/public/demo-card.png`, portant **R202400003**, puis lancer la lecture OCR et la vérification. Une fois ce profil vérifié, ses connexions suivantes ne demandent plus de scan.
+## Tests
 
-Le fonds présenté est un inventaire fictif de démonstration, pas l’inventaire officiel de l’université.
+Les validations exécutées sur une base PostgreSQL isolée donnent les résultats suivants :
 
-Les identifiants fictifs du fournisseur universitaire sont `R202400001`, `R202400002` et `R202400003` (profil d’inscription). Un scan ne doit pas être présenté comme une vérification officielle. Pour reproduire exactement un test de réservation, choisir un exemplaire disponible et tenir compte des prêts/réservations déjà présents dans le jeu de démonstration.
-
-### 5. Vérifier et construire
+- **74/74 tests serveur réussis** avec Vitest et Supertest ;
+- **4/4 scénarios Playwright Chromium réussis** : inscription OCR, circulation étudiant/bibliothécaire et cas caméra ;
+- **OCR Tesseract.js validé** sur la carte synthétique avec reconnaissance de `R202400003` ;
+- vérification TypeScript et builds backend/frontend réussis.
 
 ```powershell
 npm run typecheck
@@ -90,55 +124,4 @@ npm run test:ocr
 npm run test:e2e:isolated
 ```
 
-Pour préparer la base dédiée et lancer les tests :
-
-```powershell
-docker compose exec db createdb -U library library_test
-npm run db:test:migrate
-npm test
-```
-
-La création de `library_test` n’est nécessaire qu’une fois. Configurer `TEST_DATABASE_URL` dans `.env` selon l’exemple. Adapter l’utilisateur si vous l’avez changé.
-
-Les tests d'intégration utilisent une base distincte désignée par `TEST_DATABASE_URL`. La configuration refuse d'utiliser la base principale. Utiliser exclusivement une base fictive dédiée ; ne jamais lancer ces commandes contre une base d'exploitation. Voir [les instructions de tests](docs/testing.md).
-
-`npm run test:ocr` exécute réellement Tesseract.js sur une carte synthétique, sans données personnelles. Le premier lancement peut télécharger les données de langue ; ce test ne remplace pas un essai de caméra matérielle.
-
-`npm run test:e2e:isolated` utilise les ports 5174/3002 pour ne pas perturber les serveurs de développement, force la base dédiée `_test`, remet uniquement `demo:onboarding` en état initial, puis exécute les quatre scénarios Chromium.
-
-Le build produit `backend/dist` et `frontend/dist`. Pour un déploiement réel, il faut un serveur Node, PostgreSQL, HTTPS et un reverse proxy servant le frontend et acheminant `/api` vers Express. Une page statique seule ne remplace pas ce backend. Les commandes et points à valider figurent dans [la configuration](docs/configuration.md).
-
-### 6. Arrêter et réinitialiser
-
-```powershell
-docker compose stop db
-```
-
-Le volume conserve les données. Pour reprendre : `docker compose up -d db`, puis `npm run dev`.
-
-**Réinitialiser efface les données de la base configurée.** À utiliser uniquement pour la base fictive :
-
-```powershell
-npm run db:reset
-```
-
-`db:seed` crée les données si le catalogue est vide ; il ne réinitialise pas une base déjà peuplée. `db:reset` efface puis recrée la base fictive et refuse de s’exécuter hors mode démo. Le seed est également refusé en production.
-
-## Configuration Google et personnel
-
-Le guide [configuration](docs/configuration.md) décrit le client Google, les origines autorisées, le connecteur universitaire et l'OCR. Le personnel doit être préattribué par une procédure locale sécurisée ; une inscription publique ne peut obtenir que STUDENT. La commande `npm run provision:staff -- --email … --name … --confirm-local-server-access` crée un bibliothécaire ; l'option `--grant-sensitive-management` accorde explicitement les habilitations renforcées.
-
-En production, `DEMO_MODE=false`, `NODE_ENV=production`, `APP_ORIGIN=https://votre-domaine` et `GOOGLE_CLIENT_ID` valide sont obligatoires. Les paramètres ne sont pas des secrets frontend. Aucun secret ne doit être commité dans `.env` ni envoyé dans un ticket ou journal.
-
-## Documents pour la présentation universitaire
-
-- [Analyse, architecture et risques](docs/architecture/01-analyse.md)
-- [Règles métier](docs/architecture/02-regles-metier.md)
-- [Modèle relationnel](docs/architecture/03-modele-relationnel.md)
-- [Quatre diagrammes UML, sources et SVG](docs/uml/README.md)
-- [Endpoints REST](docs/api/endpoints.md)
-- [Rôles et sécurité](docs/security.md)
-- [Installation, Google, OCR et connecteur](docs/configuration.md)
-- [Traçabilité UML ↔ code](docs/traceability.md)
-- [Tests et résultats observés](docs/testing.md)
-- [Bilan des phases et limites](docs/phase-status.md)
+Les tests serveur et navigateur exigent une base dédiée dont le nom se termine par `_test`. Ils refusent la base principale. Les résultats détaillés et les limites de validation externe sont documentés dans [`docs/testing.md`](docs/testing.md).
