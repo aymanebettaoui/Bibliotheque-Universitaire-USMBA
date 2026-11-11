@@ -21,11 +21,27 @@ export function Login() {
   const [googleError, setGoogleError] = useState('');
   const [googleLoading, setGoogleLoading] = useState(false);
   const queryClient = useQueryClient();
-  async function finish(user: User) {
+  async function finish(user: User, scenario?: 'ONBOARDING') {
     queryClient.removeQueries({ predicate: q => q.queryKey[0] !== 'session' });
     await refresh();
-    const next = session?.demo ? undefined : (location.state as { from?: string } | null)?.from;
-    navigate(user.role === 'STUDENT' && !user.student?.verified ? '/verification' : next || (user.role === 'STUDENT' ? '/espace' : '/gestion'), { replace: true });
+
+    // Le premier parcours d'inscription ouvre la page OCR, sans redemander
+    // un scan lors des connexions suivantes d'un compte déjà vérifié.
+    if (scenario === 'ONBOARDING' && !user.student?.verified) {
+      navigate('/verification', { replace: true });
+      return;
+    }
+
+    const next = session?.demo
+      ? undefined
+      : (location.state as { from?: string } | null)?.from;
+
+    navigate(
+      user.role === 'STUDENT' && !user.student?.verified
+        ? '/verification'
+        : next || (user.role === 'STUDENT' ? '/espace' : '/gestion'),
+      { replace: true }
+    );
   }
   useEffect(() => {
     if (!session?.googleClientId || session.user) return;
@@ -44,7 +60,20 @@ export function Login() {
     void initialize();
     return () => { cancelled = true; };
   }, [session?.googleClientId, session?.user]);
-  async function demo(role: Role, scenario?: 'ONBOARDING') { setPending(role); try { const result = await post<{ user: User }>('/auth/demo', { role, ...(scenario ? { scenario } : {}) }); await finish(result.user); } catch (e) { notify((e as Error).message, 'error'); } finally { setPending(null); } }
+  async function demo(role: Role, scenario?: 'ONBOARDING') {
+    setPending(role);
+    try {
+      const result = await post<{ user: User }>('/auth/demo', {
+        role,
+        ...(scenario ? { scenario } : {}),
+      });
+      await finish(result.user, scenario);
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    } finally {
+      setPending(null);
+    }
+  }
   if (session?.user) return <section className="auth-card"><CheckCircle2 size={38} className="teal" /><h1>Vous êtes déjà connecté.</h1><p>Retrouvez votre espace et les services de la bibliothèque.</p><button className="button primary" onClick={() => navigate(session.user?.role === 'STUDENT' ? '/espace' : '/gestion')}>Accéder à mon espace <ArrowRight size={16} /></button></section>;
   return <div className="login-layout"><div className="login-intro"><div className="eyebrow">L’ESPACE DE VOS DÉCOUVERTES</div><h1>Tous les savoirs.<br /><em>Votre bibliothèque.</em></h1><p>Un seul compte universitaire pour réserver vos ouvrages et suivre vos emprunts.</p><div className="login-values"><div><ShieldCheck /><span><strong>Votre compte, protégé</strong><small>Connexion Google vérifiée côté serveur.</small></span></div><div><ScanLine /><span><strong>Une inscription simplifiée</strong><small>Votre carte universitaire, une seule fois.</small></span></div><div><GraduationCap /><span><strong>Un service universitaire</strong><small>Réservé aux étudiants vérifiés et au personnel autorisé.</small></span></div></div></div><section className="auth-card"><span className="auth-icon"><GraduationCap size={30} strokeWidth={1.4} /></span><h2>Bienvenue à la bibliothèque</h2><p>Connectez-vous avec votre compte universitaire.</p>{session?.googleClientId ? <><div className="google-button" ref={buttonRef} />{googleLoading && <p className="small-text"><Loader2 className="spin" size={15} />Chargement de Google…</p>}</> : <><button className="button google-disabled" disabled><span className="google-mark">G</span> Se connecter avec Google</button><p className="config-note">La connexion Google nécessite la configuration du client OAuth par le responsable technique.</p></>}{googleError && <p className="inline-error" role="alert">{googleError}</p>}{pending === 'GOOGLE' && <p className="small-text"><Loader2 className="spin" size={15} />Vérification sécurisée de votre compte…</p>}<div className="domain-note"><ShieldCheck size={15} /> Étudiants : comptes @usmba.ac.ma uniquement</div>{session?.demo && <div className="demo-login"><div className="demo-title"><span className="demo-badge">Démonstration</span><span>Données fictives</span></div><p>Explorez un parcours avec un compte de test. Ces accès sont désactivés en production.</p>{([{ role: 'STUDENT', label: 'Étudiant — Démo', icon: GraduationCap }, { role: 'LIBRARIAN', label: 'Bibliothécaire — Démo', icon: ScanLine }] as const).map(item => <button key={item.role} data-testid={`demo-login-${item.role}`} disabled={!!pending} className="demo-role" onClick={() => demo(item.role)}><item.icon size={19} /><span>{item.label}</span>{pending === item.role ? <Loader2 className="spin" size={17} /> : <ArrowRight size={17} />}</button>)}<button className="demo-role" data-testid="demo-login-ONBOARDING" disabled={!!pending} onClick={() => demo('STUDENT', 'ONBOARDING')}><Camera size={19} /><span>Tester l’inscription par scan</span><ArrowRight size={17} /></button></div>}<p className="auth-privacy">Les photographies de votre carte ne sont pas conservées. Aucun mot de passe n’est demandé.</p></section></div>;
 }
