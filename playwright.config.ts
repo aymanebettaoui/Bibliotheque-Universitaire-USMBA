@@ -1,23 +1,19 @@
 import { defineConfig, devices } from '@playwright/test';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 dotenv.config({ path: '.env' });
-const baseURL = process.env.TEST_BASE_URL || 'http://localhost:5173';
+const useExistingServer = process.env.E2E_USE_EXISTING_TEST_SERVER === 'true';
+const startServers = !useExistingServer && process.env.E2E_START_SERVERS !== 'false';
+const baseURL = process.env.TEST_BASE_URL || (startServers ? 'http://localhost:5174' : 'http://localhost:5173');
 const base = new URL(baseURL);
 if (!['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) {
   throw new Error('Les tests de démonstration Playwright sont limités à un serveur local.');
 }
-const startServers = process.env.E2E_START_SERVERS === 'true';
 if (startServers && base.protocol !== 'http:') {
   throw new Error('Le démarrage automatique E2E exige une origine HTTP locale dédiée.');
 }
-// An existing server must explicitly be identified as a test instance. The
-// automatic path always overrides DATABASE_URL with the dedicated _test DB.
-if (!startServers && process.env.E2E_USE_EXISTING_TEST_SERVER !== 'true') {
-  throw new Error('Utilisez E2E_START_SERVERS=true pour lancer la base de tests isolée, ou E2E_USE_EXISTING_TEST_SERVER=true pour une instance de TEST locale déjà démarrée.');
-}
-
 export default defineConfig({
+  globalSetup: './scripts/verify-e2e-mode.ts',
   testDir: './frontend/e2e',
   fullyParallel: false,
   workers: 1,
@@ -39,6 +35,6 @@ export default defineConfig({
     url: new URL('/api/health', baseURL).toString(),
     timeout: 120_000,
     reuseExistingServer: false,
-    env: { TEST_BASE_URL: baseURL },
+    env: { TEST_BASE_URL: baseURL, E2E_API_PORT: process.env.E2E_API_PORT || '3002' },
   } : undefined,
 });

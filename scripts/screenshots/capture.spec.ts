@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 
-const output = 'docs/screenshots';
+const output = process.env.SCREENSHOT_OUTPUT || 'docs/screenshots';
 
 async function ready(page: Page) {
   await expect(page.locator('main')).toBeVisible();
@@ -39,7 +39,7 @@ test('capturer les interfaces réelles de la démonstration', async ({ page }) =
   await expect(page.getByText('Se connecter avec Google', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Étudiant — Démo' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Bibliothécaire — Démo' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Tester l’inscription par scan' })).toBeVisible();
+  await expect(page.getByTestId('demo-login-ONBOARDING')).toHaveCount(0);
   await capture(page, 'connexion');
 
   await page.getByTestId('demo-login-STUDENT').click();
@@ -70,8 +70,15 @@ test('capturer les interfaces réelles de la démonstration', async ({ page }) =
   await capture(page, 'parametres');
 
   await logout(page);
-  await page.getByTestId('demo-login-ONBOARDING').click();
-  await expect(page).toHaveURL(/\/verification$/);
+  const preauth = await page.request.get('/api/auth/me');
+  await expect(preauth).toBeOK();
+  const { csrfToken } = await preauth.json();
+  const onboarding = await page.request.post('/api/auth/demo', {
+    headers: { Origin: new URL(page.url()).origin, 'X-CSRF-Token': csrfToken },
+    data: { role: 'STUDENT', scenario: 'ONBOARDING' },
+  });
+  await expect(onboarding).toBeOK();
+  await page.goto('/verification', { waitUntil: 'domcontentloaded' });
   await page.getByLabel('Importer une photographie de carte').setInputFiles('frontend/public/demo-card.png');
   await expect(page.getByLabel('Numéro étudiant / CNE')).toHaveValue('R202400003', { timeout: 60_000 });
   await capture(page, 'ocr-demo');

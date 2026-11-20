@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { test, expect, request as apiRequest, type APIRequestContext, type Page } from '@playwright/test';
+import { PrismaClient } from '@prisma/client';
 
 type Role = 'STUDENT' | 'LIBRARIAN';
 async function apiSession(baseURL: string, role: Role) {
@@ -13,6 +14,40 @@ async function apiSession(baseURL: string, role: Role) {
   await expect(login).toBeOK();
   const identity = await login.json();
   return { context, csrf: identity.csrfToken as string };
+}
+async function isolatedStudent(baseURL: string) {
+  const databaseUrl = process.env.TEST_DATABASE_URL;
+  if (!databaseUrl || !new URL(databaseUrl).pathname.endsWith('_test') || databaseUrl === process.env.DATABASE_URL) {
+    throw new Error('Ce scénario exige une base de tests dédiée et distincte.');
+  }
+  const db = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  const id = randomUUID();
+  const studentNumber = `E2E${id.replaceAll('-', '').slice(0, 12)}`;
+  await db.user.create({ data: {
+    id, googleSub: `e2e:${id}`, email: `${id}@usmba.ac.ma`, name: 'Étudiant fictif E2E', role: 'STUDENT',
+    student: { create: { verified: true, studentNumber } },
+  } });
+  async function session() {
+    const token = randomBytes(32).toString('base64url');
+    const csrf = randomBytes(32).toString('base64url');
+    await db.session.create({ data: {
+      userId: id, tokenHash: createHash('sha256').update(token).digest('hex'), csrfToken: csrf,
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+    } });
+    return { token, csrf };
+  }
+  const apiSession = await session();
+  const context = await apiRequest.newContext({ baseURL, extraHTTPHeaders: {
+    Origin: new URL(baseURL).origin, Cookie: `library_session=${apiSession.token}`,
+  } });
+  return { context, csrf: apiSession.csrf, studentNumber, db, login: async (page: Page) => {
+    const browserSession = await session();
+    await page.context().addCookies([{ name: 'library_session', value: browserSession.token,
+      domain: new URL(baseURL).hostname, path: '/api', httpOnly: true, sameSite: 'Lax' }]);
+    await page.goto('/espace');
+    await expect(page).toHaveURL(/\/espace$/);
+    await expect(page.locator('.account')).toContainText('Étudiant fictif E2E');
+  } };
 }
 async function mutate(session: { context: APIRequestContext; csrf: string }, path: string, data: unknown, method = 'POST') {
   return session.context.fetch(`/api${path}`, { method, headers: { 'X-CSRF-Token': session.csrf }, data });
@@ -41,7 +76,7 @@ test('le bouton de démonstration du scan est absent', async ({ page }) => {
 
 test('parcours physique complet : étudiant, réservation, remise, emprunt et retour', async ({ page, baseURL }, testInfo) => {
   const staff = await apiSession(baseURL!, 'LIBRARIAN');
-  const student = await apiSession(baseURL!, 'STUDENT');
+  const student = await isolatedStudent(baseURL!);
   const title = `E2E — Circulation ${randomUUID()}`;
   let bookId: string | undefined;
   try {
@@ -58,7 +93,7 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
     const copy = (await added.json()).items[0] as { id: string; barcode: string };
 
     await test.step('Connexion étudiant et recherche dans le vrai catalogue', async () => {
-      await uiLogin(page, 'STUDENT');
+      await student.login(page);
       await page.goto('/');
       await page.getByTestId('catalogue-search').fill(title);
       await page.getByTestId('catalogue-search').press('Enter');
@@ -70,8 +105,7 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
     let reservationId = '';
     let studentNumber = '';
     await test.step('Demande et acceptation automatique, distinctes de la remise', async () => {
-      const me = await page.request.get('/api/auth/me');
-      studentNumber = (await me.json()).user.student.studentNumber;
+      studentNumber = student.studentNumber;
       await page.getByTestId('request-borrow').click();
       const responsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/requests' && response.request().method() === 'POST');
       await page.getByRole('dialog', { name: 'Demander cet ouvrage ?' }).getByRole('button', { name: 'Envoyer ma demande' }).click();
@@ -103,7 +137,7 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
     });
 
     await test.step('L’étudiant retrouve son emprunt actif et sa date de retour', async () => {
-      await uiLogout(page); await uiLogin(page, 'STUDENT');
+      await uiLogout(page); await student.login(page);
       await page.goto('/emprunts');
       const row = page.locator('tbody tr').filter({ hasText: title });
       await expect(row).toContainText(copy.barcode); await expect(row).toContainText('En cours');
@@ -148,7 +182,7 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
         if (!archived.ok()) cleanupErrors.push(`Archivage ${archived.status()}`);
       } catch (error) { cleanupErrors.push(error instanceof Error ? error.message : 'Erreur de nettoyage'); }
     }
-    await staff.context.dispose(); await student.context.dispose();
+    await staff.context.dispose(); await student.context.dispose(); await student.db.$disconnect();
     if (cleanupErrors.length) {
       await testInfo.attach('cleanup-errors', { body: cleanupErrors.join('\n'), contentType: 'text/plain' });
       expect(cleanupErrors, 'Les données de ce scénario doivent être libérées puis archivées.').toEqual([]);
