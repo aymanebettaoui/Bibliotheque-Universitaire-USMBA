@@ -24,9 +24,30 @@ async function notify(tx: Tx, userId: string, type: string, content: string, ded
   await tx.notification.upsert({ where: { dedupeKey }, create: { userId, type, content, dedupeKey }, update: {} });
 }
 
+async function activeBorrowLimit(tx: Tx, studentId: string, now: Date, currentReservationId?: string) {
+  const [settings, loans, reservations] = await Promise.all([
+    tx.librarySettings.findUniqueOrThrow({ where: { id: 'singleton' } }),
+    tx.loan.count({ where: { studentId, status: { in: ['ACTIVE', 'OVERDUE'] } } }),
+    tx.reservation.count({ where: {
+      studentId, status: 'ACTIVE', expiresAt: { gt: now }, ...(currentReservationId ? { id: { not: currentReservationId } } : {}),
+    } }),
+  ]);
+  return { maxLoans: settings.maxLoans, reached: loans + reservations >= settings.maxLoans };
+}
+
+export async function getBorrowLimit(userId: string, now = new Date()) {
+  return prisma.$transaction(async tx => {
+    const student = await tx.student.findUnique({ where: { userId } });
+    if (!student) throw new HttpError(403, 'STUDENT_REQUIRED', 'Un profil étudiant est nécessaire.');
+    const limit = await activeBorrowLimit(tx, student.id, now);
+    const reason = await refusalReason(tx, student.id, now, undefined, limit);
+    return { ...limit, reason };
+  });
+}
+
 /** All callers hold this student's row lock, serializing concurrent requests
  * even when the requests target different physical copies. */
-async function refusalReason(tx: Tx, studentId: string, now: Date, currentReservationId?: string): Promise<string | null> {
+async function refusalReason(tx: Tx, studentId: string, now: Date, currentReservationId?: string, knownLimit?: Awaited<ReturnType<typeof activeBorrowLimit>>): Promise<string | null> {
   const student = await tx.student.findUniqueOrThrow({ where: { id: studentId }, include: { user: true } });
   if (!student.user.active) return 'Votre compte est désactivé. Contactez la bibliothèque.';
   if (!student.verified || !student.studentNumber) return 'Votre identité universitaire doit être vérifiée avant de pouvoir emprunter.';
@@ -40,14 +61,8 @@ async function refusalReason(tx: Tx, studentId: string, now: Date, currentReserv
   if (await tx.loan.count({ where: { studentId, status: { in: ['ACTIVE', 'OVERDUE'] }, dueAt: { lt: now } } })) {
     return 'Un emprunt est en retard. Rapportez cet exemplaire avant toute nouvelle remise ou réservation.';
   }
-  const [settings, loans, reservations] = await Promise.all([
-    tx.librarySettings.findUniqueOrThrow({ where: { id: 'singleton' } }),
-    tx.loan.count({ where: { studentId, status: { in: ['ACTIVE', 'OVERDUE'] } } }),
-    tx.reservation.count({ where: {
-      studentId, status: 'ACTIVE', expiresAt: { gt: now }, ...(currentReservationId ? { id: { not: currentReservationId } } : {}),
-    } }),
-  ]);
-  if (loans + reservations >= settings.maxLoans) return `La limite de ${settings.maxLoans} emprunts et réservations cumulés est atteinte.`;
+  const limit = knownLimit ?? await activeBorrowLimit(tx, studentId, now, currentReservationId);
+  if (limit.reached) return `La limite de ${limit.maxLoans} emprunts et réservations cumulés est atteinte.`;
   return null;
 }
 
@@ -58,7 +73,9 @@ export async function requestBorrow(userId: string, bookId: string, now = new Da
     const student = await lockStudent(tx, initialStudent.id);
     const book = await tx.book.findUnique({ where: { id: bookId } });
     if (!book) throw new HttpError(404, 'BOOK_NOT_FOUND', 'Ouvrage introuvable.');
-    let reason = await refusalReason(tx, student.id, now);
+    const limit = await activeBorrowLimit(tx, student.id, now);
+    if (limit.reached) throw new HttpError(409, 'BORROW_LIMIT_REACHED', `Demande refusée : vous avez atteint la limite maximale de ${limit.maxLoans} emprunts et réservations actifs.`);
+    let reason = await refusalReason(tx, student.id, now, undefined, limit);
     if (!reason && book.archived) reason = 'Cet ouvrage est archivé et ne peut plus être réservé.';
     if (!reason) {
       const duplicate = await tx.reservation.count({ where: { studentId: student.id, status: 'ACTIVE', expiresAt: { gt: now }, copy: { bookId } } });

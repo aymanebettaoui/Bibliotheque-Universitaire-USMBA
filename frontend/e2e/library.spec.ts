@@ -34,23 +34,9 @@ test.beforeAll(async ({ request }) => {
   expect((await health.json()).demo, 'Ne jamais exécuter ces scénarios contre une instance de production.').toBe(true);
 });
 
-test('inscription OCR fictive reproductible puis reconnexion sans nouveau scan', async ({ page }) => {
+test('le bouton de démonstration du scan est absent', async ({ page }) => {
   await page.goto('/connexion');
-  await expect(page.getByText('Se connecter avec Google', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Étudiant — Démo', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Bibliothécaire — Démo', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Tester l’inscription par scan', exact: true })).toBeVisible();
-  await expect(page.getByText(/administrateur/i)).toHaveCount(0);
-  await page.getByTestId('demo-login-ONBOARDING').click();
-  await expect(page).toHaveURL(/\/verification$/);
-  await page.getByLabel('Importer une photographie de carte').setInputFiles('frontend/public/demo-card.png');
-  await expect(page.getByLabel('Numéro étudiant / CNE')).toHaveValue('R202400003', { timeout: 60_000 });
-  await page.getByRole('button', { name: 'Vérifier mes informations' }).click();
-  await expect(page).toHaveURL(/\/espace$/, { timeout: 20_000 });
-  await expect(page.getByText(/Vérification simulée/)).toBeVisible();
-  await uiLogout(page);
-  await page.getByTestId('demo-login-ONBOARDING').click();
-  await expect(page).toHaveURL(/\/espace$/);
+  await expect(page.getByTestId('demo-login-ONBOARDING')).toHaveCount(0);
 });
 
 test('parcours physique complet : étudiant, réservation, remise, emprunt et retour', async ({ page, baseURL }, testInfo) => {
@@ -168,6 +154,22 @@ test('parcours physique complet : étudiant, réservation, remise, emprunt et re
       expect(cleanupErrors, 'Les données de ce scénario doivent être libérées puis archivées.').toEqual([]);
     }
   }
+});
+
+test('la limite affiche un refus sous le bouton sans ouvrir la confirmation ni créer de demande', async ({ page }) => {
+  await uiLogin(page, 'STUDENT');
+  await page.route('**/api/requests/limit', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ maxLoans: 3, reached: true }) }));
+  let postCount = 0;
+  await page.route('**/api/requests', route => {
+    if (route.request().method() === 'POST') postCount++;
+    return route.continue();
+  });
+  await page.goto('/');
+  await page.locator('[data-testid="book-card"]:has(.availability.yes)').first().click();
+  await page.getByTestId('request-borrow').click();
+  await expect(page.locator('.reserve-area [role="alert"]')).toHaveText('Demande refusée : vous avez atteint la limite maximale de 3 emprunts et réservations actifs.');
+  await expect(page.getByRole('dialog', { name: 'Demander cet ouvrage ?' })).toHaveCount(0);
+  expect(postCount).toBe(0);
 });
 
 // These isolated interface tests inject browser error conditions only. They do

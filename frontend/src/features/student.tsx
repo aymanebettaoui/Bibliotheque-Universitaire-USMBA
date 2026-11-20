@@ -26,7 +26,10 @@ export function StudentDashboard() {
 export function Stat({ icon: Icon, label, value, caption, tone = '' }: { icon: typeof BookOpen; label: string; value: number | string; caption?: string; tone?: string }) { return <div className={`stat-card ${tone}`}><div><span>{label}</span><Icon size={20} strokeWidth={1.6} /></div><strong>{value}</strong>{caption && <small>{caption}</small>}</div>; }
 
 export function Requests() {
-  const query = useQuery({ queryKey: ['my-requests'], queryFn: () => api<List<BorrowRequest>>('/me/requests') });
+  const query = useQuery({ queryKey: ['my-requests'], queryFn: async () => {
+    const result = await api<List<BorrowRequest>>('/me/requests');
+    return { ...result, items: result.items.filter(request => request.status !== 'REFUSED') };
+  } });
   const queryClient = useQueryClient();
   const notify = useToast();
   const [cancel, setCancel] = useState<BorrowRequest | null>(null);

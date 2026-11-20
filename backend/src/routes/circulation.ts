@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/db.js';
 import { requireAuth, requireRoles } from '../middleware/auth.js';
-import { cancelRequest, handover, requestBorrow, returnLoan } from '../services/circulation.js';
+import { cancelRequest, getBorrowLimit, handover, requestBorrow, returnLoan } from '../services/circulation.js';
 
 export const circulationRouter = Router();
 const uuid = z.string().uuid();
@@ -10,6 +10,10 @@ const student = [requireAuth, requireRoles('STUDENT')];
 const staff = [requireAuth, requireRoles('LIBRARIAN')];
 // Express 4: forward promise failures into the centralized error middleware.
 const route = (fn: (req: any, res: any) => Promise<unknown>) => (req: any, res: any, next: any) => { void fn(req, res).catch(next); };
+
+circulationRouter.get('/requests/limit', ...student, route(async (req, res) => {
+  res.json(await getBorrowLimit(req.user.id));
+}));
 
 circulationRouter.post('/requests', ...student, route(async (req, res) => {
   const { bookId } = z.object({ bookId: uuid }).strict().parse(req.body);

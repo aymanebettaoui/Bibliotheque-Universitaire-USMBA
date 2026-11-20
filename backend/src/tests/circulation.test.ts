@@ -4,7 +4,7 @@ import supertest from 'supertest';
 import { prisma } from '../config/db.js';
 import { hashToken, opaqueToken, SESSION_COOKIE, configuredOrigin } from '../middleware/auth.js';
 import { resetExpiredLateCycles } from '../jobs/scheduler.js';
-import { cancelRequest, expireReservations, generateReminders, handover, processOverdue, requestBorrow, returnLoan } from '../services/circulation.js';
+import { cancelRequest, expireReservations, generateReminders, getBorrowLimit, handover, processOverdue, requestBorrow, returnLoan } from '../services/circulation.js';
 
 // These tests create only random, fictional fixtures and clean only their IDs.
 // Run against a separately migrated database, e.g. library_test.
@@ -156,9 +156,21 @@ describe('Réservations transactionnelles PostgreSQL', () => {
       const title = await book(); await requestBorrow(user.id, title.id, now);
     }
     const a = await book(); const b = await book();
-    const requests = await Promise.all([requestBorrow(user.id, a.id, now), requestBorrow(user.id, b.id, now)]);
-    expect(requests.filter(r => r.status === 'ACCEPTED')).toHaveLength(1);
+    const requests = await Promise.allSettled([requestBorrow(user.id, a.id, now), requestBorrow(user.id, b.id, now)]);
+    expect(requests.filter(r => r.status === 'fulfilled' && r.value.status === 'ACCEPTED')).toHaveLength(1);
+    expect(requests.filter(r => r.status === 'rejected' && r.reason.code === 'BORROW_LIMIT_REACHED')).toHaveLength(1);
     expect(await prisma.reservation.count({ where: { studentId: user.student!.id, status: 'ACTIVE' } })).toBe(settings.maxLoans);
+    expect(await prisma.borrowRequest.count({ where: { studentId: user.student!.id } })).toBe(settings.maxLoans);
+  });
+
+  it('refuse à la limite configurée sans créer de demande', async () => {
+    const user = await student();
+    const settings = await prisma.librarySettings.findUniqueOrThrow({ where: { id: 'singleton' } });
+    for (let i = 0; i < settings.maxLoans; i++) await requestBorrow(user.id, (await book()).id, now);
+    const next = await book();
+    expect(await getBorrowLimit(user.id, now)).toMatchObject({ maxLoans: settings.maxLoans, reached: true });
+    await expect(requestBorrow(user.id, next.id, now)).rejects.toMatchObject({ status: 409, code: 'BORROW_LIMIT_REACHED' });
+    expect(await prisma.borrowRequest.count({ where: { studentId: user.student!.id } })).toBe(settings.maxLoans);
   });
 
   it('annule seulement la demande de son propriétaire et libère l’exemplaire', async () => {
